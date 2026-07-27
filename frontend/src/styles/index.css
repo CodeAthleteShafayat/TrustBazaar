@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 36 33% 96%;
+    --foreground: 24 25% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 24 25% 12%;
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 33 25% 92%;
+    --secondary-foreground: 24 25% 18%;
+    --muted: 33 22% 90%;
+    --muted-foreground: 24 12% 38%;
+    --accent: 12 90% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 18% 84%;
+    --input: 30 18% 84%;
+    --ring: 24 95% 53%;
+    --radius: 1rem;
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 213 31% 91%;
+    --card: 222 47% 9%;
+    --card-foreground: 213 31% 91%;
+    --primary: 24 95% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 213 31% 91%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 12 90% 60%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 213 31% 91%;
+    --border: 217 33% 22%;
+    --input: 217 33% 22%;
+    --ring: 24 95% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer utilities {
+  .bg-gradient-brand {
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 50%, #f43f5e 100%);
+  }
+
+  .bg-gradient-trust {
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 50%, #f43f5e 100%);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 50%, #f43f5e 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(231, 220, 207, 0.8);
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(231, 220, 207, 0.5) 0%,
+      rgba(231, 220, 207, 0.8) 50%,
+      rgba(231, 220, 207, 0.5) 100%
+    );
+    background-size: 1000px 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
+  .bg-cream {
+    background-color: #fbf7f2;
+  }
+
+  .bg-cream-soft {
+    background-color: #f5efe6;
+  }
+}
