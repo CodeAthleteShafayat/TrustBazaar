@@ -123,7 +123,7 @@ export function Dashboard() {
         ) : (
           <div className="grid gap-3">
             {listings.map((l, i) => (
-              <motion.div key={l.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
+              <motion.div key={l.id} className="min-w-0" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
                 <Card className="hover:border-orange-300 transition-colors">
                   <div className="flex items-center gap-4">
                     <Link to={`/listing/${l.id}`} className="h-16 w-16 rounded-xl bg-stone-100 overflow-hidden shrink-0">
@@ -131,20 +131,20 @@ export function Dashboard() {
                     </Link>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <Link to={`/listing/${l.id}`} className="font-semibold truncate text-stone-900 hover:text-orange-600">{l.title}</Link>
-                        <Badge variant={LISTING_STATUS_VARIANT[l.status] || "default"} className="capitalize">{l.status}</Badge>
+                        <Link to={`/listing/${l.id}`} className="min-w-0 font-semibold truncate text-stone-900 hover:text-orange-600">{l.title}</Link>
+                        <Badge variant={LISTING_STATUS_VARIANT[l.status] || "default"} className="capitalize shrink-0">{l.status}</Badge>
                       </div>
                       <div className="mt-1 text-sm text-stone-500">
                         {fmtMoney(l.price)}{l.listing_type === "rent" && l.rent_per_day ? ` · ${fmtMoney(l.rent_per_day)}/day` : ""}
                       </div>
                     </div>
-                    <Link to={`/create?edit=${l.id}`} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900 transition" title="Edit">
+                    <Link to={`/create?edit=${l.id}`} className="shrink-0 rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900 transition" title="Edit">
                       <Pencil className="h-4 w-4" />
                     </Link>
                     <button
                       onClick={() => removeListing.mutate(l.id)}
                       disabled={removeListing.isPending}
-                      className="rounded-lg p-2 text-stone-500 hover:bg-rose-50 hover:text-rose-600 transition"
+                      className="shrink-0 rounded-lg p-2 text-stone-500 hover:bg-rose-50 hover:text-rose-600 transition"
                       title="Remove listing"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -169,11 +169,11 @@ export function Dashboard() {
         ) : (
           <div className="grid gap-3">
             {orders.slice(0, 3).map((o) => (
-              <Link key={o.id} to={`/orders/${o.id}`}>
-                <Card className="hover:border-orange-300 transition-colors flex items-center justify-between">
-                  <span className="font-medium text-stone-900 truncate">{o.listing?.title || "Order"}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-stone-500">{fmtMoney(o.amount)}</span>
+              <Link key={o.id} to={`/orders/${o.id}`} className="block">
+                <Card className="hover:border-orange-300 transition-colors flex items-center justify-between gap-3">
+                  <span className="min-w-0 font-medium text-stone-900 truncate">{o.listing?.title || "Order"}</span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-sm text-stone-500 whitespace-nowrap">{fmtMoney(o.amount)}</span>
                     <Badge variant="info" className="capitalize">{o.status}</Badge>
                   </div>
                 </Card>
@@ -195,11 +195,11 @@ export function Dashboard() {
         ) : (
           <div className="grid gap-3">
             {rentals.slice(0, 3).map((r) => (
-              <Link key={r.id} to={`/rentals/${r.id}`}>
-                <Card className="hover:border-orange-300 transition-colors flex items-center justify-between">
-                  <span className="font-medium text-stone-900 truncate">{r.listing?.title || "Rental"}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-stone-500">{fmtMoney(r.rental_fee)}</span>
+              <Link key={r.id} to={`/rentals/${r.id}`} className="block">
+                <Card className="hover:border-orange-300 transition-colors flex items-center justify-between gap-3">
+                  <span className="min-w-0 font-medium text-stone-900 truncate">{r.listing?.title || "Rental"}</span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-sm text-stone-500 whitespace-nowrap">{fmtMoney(r.rental_fee)}</span>
                     <Badge variant="violet" className="capitalize">{r.status}</Badge>
                   </div>
                 </Card>
@@ -214,15 +214,15 @@ export function Dashboard() {
 
 function StatCard({ icon: Icon, label, value, sub, to }: { icon: any; label: string; value: string | number; sub?: string; to: string }) {
   return (
-    <Link to={to}>
-      <Card className="hover:border-orange-300 transition-colors">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
-            <Icon className="h-5 w-5" />
+    <Link to={to} className="block">
+      <Card className="hover:border-orange-300 transition-colors p-3.5 sm:p-6">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+            <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
           </div>
           <div className="min-w-0">
-            <div className="text-2xl font-bold text-stone-900 leading-tight">{value}</div>
-            <div className="text-xs text-stone-500 truncate">{label}{sub ? ` · ${sub}` : ""}</div>
+            <div className="text-xl sm:text-2xl font-bold text-stone-900 leading-tight">{value}</div>
+            <div className="text-xs text-stone-500 leading-snug">{label}{sub ? ` · ${sub}` : ""}</div>
           </div>
         </div>
       </Card>

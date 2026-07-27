@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { useAuth } from "./lib/auth";
 import { apiClient } from "./lib/client";
+import { ApiError } from "./lib/api";
 import { Layout } from "./components/Layout";
 import { Landing } from "./pages/Landing";
 import { Login } from "./pages/Login";
@@ -22,7 +23,12 @@ import { PageTransition } from "./components/PageTransition";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const token = useAuth((s) => s.token);
+  const hasHydrated = useAuth((s) => s.hasHydrated);
   const loc = useLocation();
+  // Wait for the persisted session to load from localStorage before deciding to redirect —
+  // otherwise every hard refresh of a protected page briefly reads token as null and bounces
+  // a logged-in user to /login. See the note on hasHydrated in lib/auth.ts.
+  if (!hasHydrated) return null;
   if (!token) return <Navigate to="/login" replace state={{ from: loc.pathname + loc.search }} />;
   return <>{children}</>;
 }
@@ -30,19 +36,27 @@ function Protected({ children }: { children: React.ReactNode }) {
 function AdminProtected({ children }: { children: React.ReactNode }) {
   const token = useAuth((s) => s.token);
   const user = useAuth((s) => s.user);
+  const hasHydrated = useAuth((s) => s.hasHydrated);
   const loc = useLocation();
+  if (!hasHydrated) return null;
   if (!token) return <Navigate to="/login" replace state={{ from: loc.pathname + loc.search }} />;
   if (!user?.is_admin) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
 export default function App() {
-  const { token, setUser, clear } = useAuth();
+  const { token, hasHydrated, setUser, clear } = useAuth();
 
   useEffect(() => {
-    if (!token) return;
-    apiClient.me().then((r) => setUser(r.data)).catch(() => clear());
-  }, [token]);
+    if (!hasHydrated || !token) return;
+    apiClient.me().then((r) => setUser(r.data)).catch((e) => {
+      // Only a genuine "this token is invalid/expired" response should log the user out.
+      // Any other failure (network hiccup, or the request getting aborted because the user
+      // navigated away before it finished — very easy to trigger by browsing quickly) is not
+      // evidence the session is bad, and clearing it here would silently sign the user out.
+      if (e instanceof ApiError && e.status === 401) clear();
+    });
+  }, [hasHydrated, token]);
 
   return (
     <Routes>

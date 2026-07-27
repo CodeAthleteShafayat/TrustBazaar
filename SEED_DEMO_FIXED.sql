@@ -34,7 +34,7 @@ begin
   -- Prices in BDT (Taka), ranging 100–15000.
   insert into public.listings (seller_id, title, category, listing_type, price, description, photo_urls, status, rent_per_day, deposit_required, deposit_rate)
   values
-    (seller_id, 'Sony A7 IV mirrorless camera',          'premium_electronics', 'rent',  15000.00, 'Lightly used, body only. Original box.',     ARRAY['https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=800'], 'active', 850.00, true,  0.60) returning id into l1;
+    (seller_id, 'Sony A7 IV mirrorless camera',          'premium_electronics', 'rent',  40000.00, 'Lightly used, body only. Original box.',     ARRAY['https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=800'], 'active', 850.00, true,  0.60) returning id into l1;
   insert into public.listings (seller_id, title, category, listing_type, price, description, photo_urls, status)
   values
     (seller_id, 'Leather wallet — brown',                'fashion',             'sale',    800.00, 'Genuine leather, gently used.',            ARRAY['https://images.unsplash.com/photo-1627123424574-724758594e93?w=800'], 'active') returning id into l2;
@@ -44,12 +44,6 @@ begin
   insert into public.listings (seller_id, title, category, listing_type, price, description, photo_urls, status)
   values
     (seller_id, 'Clean Code — Robert C. Martin',         'books',               'sale',    500.00, 'Softcover, no markings.',                  ARRAY['https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=800'], 'active') returning id into l4;
-  insert into public.listings (seller_id, title, category, listing_type, price, description, photo_urls, status, rent_per_day, deposit_required, deposit_rate)
-  values
-    (seller_id, 'DJI Mini 3 Pro drone',                  'premium_electronics', 'rent',  12000.00, 'Includes 3 batteries, no flyaway history.', ARRAY['https://images.unsplash.com/photo-1473968512647-3e447244af8f?w=800'], 'active', 600.00, true, 0.60) returning id into l5;
-  insert into public.listings (seller_id, title, category, listing_type, price, description, photo_urls, status)
-  values
-    (seller_id, 'Apple Watch Series 8 — 45mm',           'smart_gadgets',       'sale',   7500.00, 'Midnight aluminum, sport band.',           ARRAY['https://images.unsplash.com/photo-1546868871-7041f6a1d193?w=800'], 'active') returning id into l6;
   insert into public.listings (seller_id, title, category, listing_type, price, description, photo_urls, status)
   values
     (seller_id, 'Handmade ceramic mugs (set of 4)',      'other',              'sale',   1200.00, 'Speckled stoneware, dishwasher safe.',     ARRAY['https://images.unsplash.com/photo-1514228748747-15422f59d6d4?w=800'], 'active') returning id into l7;
@@ -86,7 +80,7 @@ begin
     (seller_id, 'Bicycle — for rent',                    'other',               'rent',  6000.00, 'Single-speed campus bicycle, good tires, basket included.', ARRAY['https://images.unsplash.com/photo-1485965120184-e220f721d03e?w=800'], 'active', 100.00, true, 0.50);
   insert into public.listings (seller_id, title, category, listing_type, price, description, photo_urls, status, rent_per_day, deposit_required, deposit_rate)
   values
-    (seller_id, 'Textbook — for rent',                   'books',               'rent',   500.00, 'Semester textbook, available for rent by chapter or full term.', ARRAY['https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=800'], 'active', 15.00, true, 0.30);
+    (seller_id, 'Textbook — for rent',                   'books',               'rent',   500.00, 'Semester textbook, available for rent by chapter or full term.', ARRAY['https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=800'], 'active', 80.00, true, 0.30);
 
   -- 2 in-flight orders (dashboard has content immediately)
   insert into public.orders (listing_id, buyer_id, seller_id, amount, commission, status, escrow, paid_at, release_at)
@@ -97,7 +91,7 @@ begin
   -- 1 active rental
   insert into public.rentals (listing_id, renter_id, owner_id, start_date, end_date, rental_fee, deposit_rate, deposit_amount, commission, status, deposit_status, paid_at, deposit_release_at)
   values
-    (l1, renter_id, seller_id, current_date, current_date + 3, 2550.00, 0.60, 9000.00, 255.00, 'active', 'held', now(), (current_date + 3) + interval '2 days');
+    (l1, renter_id, seller_id, current_date, current_date + 3, 2550.00, 0.60, 24000.00, 255.00, 'active', 'held', now(), (current_date + 3) + interval '2 days');
 
   -- Wallet ledger seed (so seller wallet shows history)
   insert into public.wallet_ledger (user_id, type, amount, reference) values

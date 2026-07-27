@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Calendar, ArrowRight, Package } from "lucide-react";
+import { Calendar, Package } from "lucide-react";
 import { Card } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/EmptyState";
@@ -60,29 +60,29 @@ export function Rentals() {
 function Row({ rental, index }: { rental: any; index: number }) {
   const photo = rental.listing?.photo_urls?.[0];
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
-      <Link to={`/rentals/${rental.id}`}>
+    <motion.div className="min-w-0" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
+      <Link to={`/rentals/${rental.id}`} className="block">
         <Card className="hover:border-orange-300 transition-colors">
-          <div className="flex items-center gap-4">
+          <div className="flex gap-4">
             <div className="h-16 w-16 rounded-xl bg-stone-100 overflow-hidden shrink-0">
               {photo && <img src={photo} className="h-full w-full object-cover" />}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold truncate text-stone-900">{rental.listing?.title || "Rental"}</h3>
-                <Badge variant={STATUS_VARIANT[rental.status] || "default"} className="capitalize">{rental.status}</Badge>
+                <h3 className="min-w-0 font-semibold truncate text-stone-900">{rental.listing?.title || "Rental"}</h3>
+                <Badge variant={STATUS_VARIANT[rental.status] || "default"} className="capitalize shrink-0">{rental.status}</Badge>
               </div>
-              <div className="mt-1 flex items-center gap-3 text-sm text-stone-500">
-                <span className="inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {fmtDate(rental.start_date)} → {fmtDate(rental.end_date)}</span>
-                <span>•</span>
-                <span>Deposit {fmtMoney(rental.deposit_amount)}</span>
+              <div className="mt-1 inline-flex items-center gap-1 text-sm text-stone-500">
+                <Calendar className="h-3.5 w-3.5 shrink-0" /> {fmtDate(rental.start_date)} → {fmtDate(rental.end_date)}
+              </div>
+              <div className="mt-2 flex items-end justify-between gap-2">
+                <span className="text-sm text-stone-500">Deposit {fmtMoney(rental.deposit_amount)}</span>
+                <div className="text-right shrink-0">
+                  <div className="font-bold text-stone-900">{fmtMoney(rental.rental_fee)}</div>
+                  <div className="text-xs text-stone-500">{rental.deposit_status}</div>
+                </div>
               </div>
             </div>
-            <div className="text-right">
-              <div className="font-bold text-stone-900">{fmtMoney(rental.rental_fee)}</div>
-              <div className="text-xs text-stone-500">{rental.deposit_status}</div>
-            </div>
-            <ArrowRight className="h-5 w-5 text-stone-400" />
           </div>
         </Card>
       </Link>

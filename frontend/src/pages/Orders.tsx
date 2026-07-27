@@ -56,8 +56,8 @@ export function Orders() {
 function OrderRow({ order, index }: { order: any; index: number }) {
   const photo = order.listing?.photo_urls?.[0];
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
-      <Link to={`/orders/${order.id}`}>
+    <motion.div className="min-w-0" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
+      <Link to={`/orders/${order.id}`} className="block">
         <Card className="hover:border-orange-300 transition-colors">
           <div className="flex items-center gap-4">
             <div className="h-16 w-16 rounded-xl bg-stone-100 overflow-hidden shrink-0">
@@ -65,16 +65,16 @@ function OrderRow({ order, index }: { order: any; index: number }) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold truncate text-stone-900">{order.listing?.title || "Order"}</h3>
-                <Badge variant={STATUS_VARIANT[order.status] || "default"} className="capitalize">{order.status}</Badge>
+                <h3 className="min-w-0 font-semibold truncate text-stone-900">{order.listing?.title || "Order"}</h3>
+                <Badge variant={STATUS_VARIANT[order.status] || "default"} className="capitalize shrink-0">{order.status}</Badge>
               </div>
-              <div className="mt-1 flex items-center gap-3 text-sm text-stone-500">
-                <span>{fmtMoney(order.amount)}</span>
-                <span>•</span>
-                <span>created {fmtRelative(order.paid_at || order.id)}</span>
+              <div className="mt-1 flex items-center gap-2 text-sm text-stone-500 flex-wrap">
+                <span className="whitespace-nowrap">{fmtMoney(order.amount)}</span>
+                <span className="hidden sm:inline">•</span>
+                <span className="whitespace-nowrap">created {fmtRelative(order.paid_at || order.id)}</span>
               </div>
             </div>
-            <ArrowRight className="h-5 w-5 text-stone-400" />
+            <ArrowRight className="h-5 w-5 text-stone-400 shrink-0" />
           </div>
         </Card>
       </Link>

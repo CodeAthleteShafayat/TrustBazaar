@@ -273,19 +273,19 @@ export function Landing() {
                 { score: 78, name: "Riyad M.", role: "Buyer & renter · 38 deals" },
                 { score: 52, name: "Sabbir K.", role: "New seller · 6 deals" },
               ].map((row) => (
-                <div key={row.name} className="flex items-center justify-between rounded-2xl border border-stone-200 bg-white px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white font-semibold text-sm">
+                <div key={row.name} className="flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-white font-semibold text-sm">
                       {row.name[0]}
                     </div>
-                    <div>
-                      <div className="text-sm font-semibold text-stone-900">{row.name}</div>
-                      <div className="text-xs text-stone-500">{row.role}</div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-stone-900 truncate">{row.name}</div>
+                      <div className="text-xs text-stone-500 truncate">{row.role}</div>
                     </div>
                   </div>
-                  <div className="rounded-lg bg-gradient-to-r from-violet-600 to-purple-600 px-3 py-2 text-white shadow-lg text-center">
-                    <div className="text-xs font-bold leading-tight">Never get cheated</div>
-                    <div className="text-[10px] opacity-90 leading-tight mt-0.5">3-day money-back guarantee</div>
+                  <div className="shrink-0 rounded-lg bg-gradient-to-r from-violet-600 to-purple-600 px-2.5 py-1.5 sm:px-3 sm:py-2 text-white shadow-lg text-center">
+                    <div className="text-[10px] sm:text-xs font-bold leading-tight whitespace-nowrap">Never get cheated</div>
+                    <div className="text-[9px] sm:text-[10px] opacity-90 leading-tight mt-0.5 whitespace-nowrap">3-day money-back</div>
                   </div>
                 </div>
               ))}

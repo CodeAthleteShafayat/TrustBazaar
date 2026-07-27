@@ -17,8 +17,8 @@ function safeNext(raw: string | null): string {
 
 export function Login() {
   const [mode, setMode] = useState<"password" | "otp">("password");
-  const [email, setEmail] = useState("buyer@demo.com");
-  const [password, setPassword] = useState("demo1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<"form" | "otp">("form");
@@ -149,16 +149,6 @@ export function Login() {
             <Link to="/signup" className="font-medium text-orange-600 hover:text-orange-700">Create an account</Link>
           </div>
         </Card>
-
-        <div className="mt-4 text-center text-xs text-stone-500">
-          <div className="font-medium text-stone-700 mb-2">Demo accounts:</div>
-          <div className="space-y-1">
-            <div>buyer@demo.com · demo1234 · Trust 45</div>
-            <div>seller@demo.com · demo1234 · Trust 95</div>
-            <div>renter@demo.com · demo1234 · Trust 72</div>
-            <div>admin@demo.com · demo1234 · admin</div>
-          </div>
-        </div>
       </motion.div>
     </div>
   );

@@ -15,9 +15,15 @@ interface AuthUser {
 interface AuthState {
   token: string | null;
   user: AuthUser | null;
+  // zustand's persist middleware hydrates from localStorage asynchronously (a microtask),
+  // so `token` reads as null for a brief moment on every hard page load/refresh even when
+  // a valid session exists. Route guards must wait for hasHydrated before trusting `token`,
+  // otherwise they redirect to /login on every refresh of a protected page.
+  hasHydrated: boolean;
   setSession: (token: string, user: AuthUser) => void;
   setUser: (user: AuthUser | null) => void;
   clear: () => void;
+  setHasHydrated: (v: boolean) => void;
 }
 
 export const useAuth = create<AuthState>()(
@@ -25,10 +31,17 @@ export const useAuth = create<AuthState>()(
     (set) => ({
       token: null,
       user: null,
+      hasHydrated: false,
       setSession: (token, user) => set({ token, user }),
       setUser: (user) => set({ user }),
       clear: () => set({ token: null, user: null }),
+      setHasHydrated: (v) => set({ hasHydrated: v }),
     }),
-    { name: "trustbazaar-auth" },
+    {
+      name: "trustbazaar-auth",
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
+    },
   ),
 );

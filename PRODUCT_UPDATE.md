@@ -95,6 +95,24 @@ Fixing §5.3 made `create_rental` succeed, which immediately surfaced that the *
 
 Verified end-to-end via curl: create rental → renter marks returned → owner confirms return (full refund) → status lands on `completed`/`deposit_status: refunded`, wallet ledger entries created for both parties.
 
+### 5.5 Users could get silently logged out just from normal navigation — found while testing mobile, not mobile-specific
+
+`App.tsx` runs a background "is this session still good" check (`GET /auth/me`) whenever `token` changes, and used to do `.catch(() => clear())` — treating *any* failure of that request as "the session is invalid, log the user out." That's wrong: if the user navigates away (a hard refresh, clicking a link fast, even a Playwright test doing back-to-back `page.goto()`) while that request is still in flight, the browser cancels it, the fetch promise rejects, and the `.catch` fired anyway — wiping a perfectly valid session and `localStorage` along with it. This is not an edge case; it's triggered by ordinary fast browsing, and it silently signs people out with no error message.
+
+**Fix:** `App.tsx` now only calls `clear()` when the error is a genuine `ApiError` with `status === 401` (a real "token rejected" response from the server) — see the `instanceof ApiError` check. Any other failure (network hiccup, aborted-by-navigation, 5xx) is left alone; the session stays intact and the next check will just retry.
+
+**Also fixed alongside it (defense in depth, not the root cause):** `lib/auth.ts`'s zustand `persist` hydrates from `localStorage` asynchronously (a microtask), so `token` reads as `null` for a brief moment on every hard page load even when a valid session exists. Added a `hasHydrated` flag (`onRehydrateStorage`) and made `Protected`/`AdminProtected` in `App.tsx` wait for it before deciding whether to redirect to `/login`. This wasn't the actual cause of the logout bug above (that was purely the `.catch` issue), but it's a real, separate race that was worth closing while in this code.
+
+**If a user ever reports "I keep getting logged out for no reason" again:** check `App.tsx`'s `.catch` first — don't assume it's fixed forever, and don't reintroduce a bare `.catch(() => clear())` anywhere in this codebase.
+
+### 5.6 Mobile layout: `<Link>` wrapping a `<Card>` doesn't fill its column — cards overflowed off-screen
+
+Multiple pages (`Orders.tsx`, `Rentals.tsx`, `Dashboard.tsx`) wrap a whole `Card` in a `<Link>` to make the row clickable, e.g. `<Link to={...}><Card>...</Card></Link>`. React Router's `Link` renders an `<a>` tag, which is `display: inline` by default. An inline element doesn't give its block children a real width to fill, so instead of respecting its grid/flex column, the `Card` shrank-to-fit whatever content was inside it — and once that content included any `whitespace-nowrap` text (a date range, "created X ago", etc.) that couldn't shrink, the card just grew wider than the viewport and got clipped by `overflow-x-hidden` on the root layout div, invisibly. Screenshots of it looked like a plain "badge cut off" cosmetic bug; the real cause was one layer up.
+
+Compounding this: even after adding `className="block"` to the `Link`, the card *still* overflowed, because the `motion.div` (framer-motion) wrapping each row is a direct CSS Grid item, and **grid items default to `min-width: auto`** (same footgun as flexbox's default) — meaning a grid item won't shrink below its content's intrinsic minimum width even when the track itself is sized correctly. Had to add `min-w-0` to the grid item itself, not just the flex children inside it, before the nowrap text was actually forced to respect the column width.
+
+**Rule going forward:** any `<Link>` wrapping a block-level layout (a `Card`, a flex row meant to fill its container) needs `className="block"` explicitly — `ListingCard.tsx` already had this right (`className="group block"`), the others didn't. And any grid item or flex item containing text that must truncate/wrap needs `min-w-0` at *every* level of the nesting chain (the grid item, the flex wrapper, and the specific text element with `truncate`) — adding it at just one level looks like it should be enough and isn't; verify by checking the actual rendered `getBoundingClientRect()` width of each ancestor, not just by eyeballing a screenshot, since `overflow-x-hidden` on the root layout will silently clip the evidence rather than show a scrollbar.
+
 ## 6. Known schema drift — don't trust `supabase/migrations/002_listings.sql` blindly
 
 The live `listings` table's actual columns are: `photo_urls` (not `photos`), `rent_per_day` (not `rental_price_per_day`), `deposit_required` (boolean flag, not an amount — confusingly named), `deposit_rate`, and there is **no** `condition` or `declared_value` column. `supabase/migrations/002_listings.sql` describes an older/different shape that does not match what's actually live.
@@ -111,6 +129,7 @@ Prices are BDT (৳), not USD. Range convention for demo listings: ৳100–৳1
 - `/create` — list an item; also handles editing via `/create?edit=<listingId>` (added this session)
 - `/admin` — dispute queue + commission config, now actually gated behind `user.is_admin` both client-side (route guard + nav link visibility in `Layout.tsx`) and server-side (`admin_required` decorator in `routes/admin.py`). Previously anyone logged in could reach it.
 - `/checkout/:id` — review-before-pay step for buying (added this session); the "Reserve rental" dialog on the listing page already served this purpose for renting, so it wasn't touched.
+- **Mobile nav was completely broken until this session** — `Layout.tsx`'s header hid the entire nav (`hidden md:flex`, no fallback) below 768px, so logged-in users on a phone had no way to reach Dashboard/Orders/Rentals/Wallet/Admin at all except by typing the URL directly. Rebuilt with a hamburger menu (`menuOpen` state in `Layout.tsx`) that surfaces search + full nav + List item + sign out below the `lg` breakpoint. If you're touching `Layout.tsx`, verify at a real mobile viewport (375px) — see §5.6 for how easy it is for cards elsewhere on the page to silently overflow off-screen without a visible scrollbar (`overflow-x-hidden` on the root layout div clips the evidence).
 
 ## 9. Suggested next steps for whoever picks this up
 

@@ -40,8 +40,8 @@ export function ListingCard({ listing, index = 0 }: { listing: Listing; index?: 
               </h3>
             </div>
             <p className="mt-1 text-xs text-muted-foreground line-clamp-1">{listing.description}</p>
-            <div className="mt-3 flex items-center justify-between">
-              <div>
+            <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
+              <div className="whitespace-nowrap">
                 {listing.listing_type === "rent" && listing.rent_per_day ? (
                   <>
                     <span className="text-lg font-bold">{fmtMoney(listing.rent_per_day)}</span>
@@ -51,7 +51,7 @@ export function ListingCard({ listing, index = 0 }: { listing: Listing; index?: 
                   <span className="text-lg font-bold">{fmtMoney(listing.price)}</span>
                 )}
               </div>
-              <span className="text-xs text-muted-foreground capitalize">{listing.category.replace("_", " ")}</span>
+              <span className="text-xs text-muted-foreground capitalize whitespace-nowrap">{listing.category.replace("_", " ")}</span>
             </div>
           </div>
         </div>
