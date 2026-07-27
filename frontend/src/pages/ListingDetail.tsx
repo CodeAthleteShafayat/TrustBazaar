@@ -8,6 +8,7 @@ import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Input } from "../components/ui/Input";
 import { Dialog } from "../components/ui/Dialog";
+import { ListingCard } from "../components/ListingCard";
 import { apiClient } from "../lib/client";
 import { fmtMoney } from "../lib/utils";
 import { useAuth } from "../lib/auth";
@@ -27,6 +28,14 @@ export function ListingDetail() {
     queryKey: ["listing", id],
     queryFn: () => apiClient.getListing(id!),
   });
+
+  const listing = data?.data;
+  const { data: relatedData } = useQuery({
+    queryKey: ["related-listings", listing?.category, id],
+    queryFn: () => apiClient.listListings({ category: listing!.category }),
+    enabled: !!listing,
+  });
+  const related = (relatedData?.data || []).filter((l) => l.id !== id).slice(0, 4);
 
   const buyMutation = useMutation({
     mutationFn: () => apiClient.createOrder(id!),
@@ -48,11 +57,10 @@ export function ListingDetail() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  if (isLoading || !data) {
+  if (isLoading || !data || !listing) {
     return <div className="aspect-video rounded-2xl skeleton" />;
   }
 
-  const listing = data.data;
   const photos = (listing.photo_urls && listing.photo_urls.length)
     ? listing.photo_urls
     : ["https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=800"];
@@ -177,6 +185,17 @@ export function ListingDetail() {
           </Card>
         </div>
       </div>
+
+      {related.length > 0 && (
+        <section>
+          <h2 className="text-xl font-semibold mb-3 text-stone-900">Related products</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {related.map((l, i) => (
+              <ListingCard key={l.id} listing={l} index={i} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <Dialog open={rentOpen} onClose={() => setRentOpen(false)} title="Reserve rental dates">
         <form onSubmit={(e) => { e.preventDefault(); rentMutation.mutate(); }} className="space-y-4">
