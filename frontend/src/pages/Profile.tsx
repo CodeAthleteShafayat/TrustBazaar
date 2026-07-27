@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Calendar, Shield } from "lucide-react";
 import { Card } from "../components/ui/Card";
+import { TrustScoreBadge } from "../components/TrustScoreBadge";
 import { ListingCard } from "../components/ListingCard";
 import { EmptyState } from "../components/EmptyState";
 import { apiClient } from "../lib/client";
@@ -78,9 +79,9 @@ export function Profile() {
               </div>
             </div>
             <div className="flex flex-col items-center gap-2">
-              <div className="rounded-lg bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-3 text-white shadow-lg text-center">
-                <div className="text-sm font-bold leading-tight">Never get cheated</div>
-                <div className="text-xs opacity-90 leading-tight mt-1">3-day money-back guarantee</div>
+              <TrustScoreBadge score={profile.trust_score ?? 0} size={96} />
+              <div className="text-xs text-stone-500 inline-flex items-center gap-1">
+                <Shield className="h-3 w-3" /> Trust Score
               </div>
             </div>
           </div>

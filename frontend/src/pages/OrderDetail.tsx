@@ -41,6 +41,7 @@ export function OrderDetail() {
       toast.success("Shipping info saved");
       setShipOpen(false);
       queryClient.invalidateQueries({ queryKey: ["order", id] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -63,6 +64,7 @@ export function OrderDetail() {
       toast.success("Dispute opened — admin will review");
       setDisputeOpen(false);
       queryClient.invalidateQueries({ queryKey: ["order", id] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -72,6 +74,7 @@ export function OrderDetail() {
     onSuccess: () => {
       toast.success("⏩ Fast-forwarded. Demo mode active.");
       queryClient.invalidateQueries({ queryKey: ["order", id] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
     },
   });
 

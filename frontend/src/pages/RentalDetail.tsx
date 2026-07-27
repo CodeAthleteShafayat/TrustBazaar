@@ -41,6 +41,7 @@ export function RentalDetail() {
       toast.success("Return initiated. Owner has 48h to confirm.");
       setReturnOpen(false);
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -56,6 +57,7 @@ export function RentalDetail() {
       toast.success("Return processed");
       setConfirmOpen(false);
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
     },
     onError: (e: any) => toast.error(e.message),
@@ -67,13 +69,18 @@ export function RentalDetail() {
       toast.success("Deposit claim filed");
       setClaimOpen(false);
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
     },
     onError: (e: any) => toast.error(e.message),
   });
 
   const fast = useMutation({
     mutationFn: () => apiClient.fastForwardRental(id!),
-    onSuccess: () => { toast.success("⏩ Fast-forwarded"); queryClient.invalidateQueries({ queryKey: ["rental", id] }); },
+    onSuccess: () => {
+      toast.success("⏩ Fast-forwarded");
+      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
+    },
   });
 
   if (isLoading || !data) return <div className="aspect-video rounded-2xl skeleton" />;
@@ -117,7 +124,7 @@ export function RentalDetail() {
               </div>
               <div>
                 <div className="text-xs text-stone-500 uppercase">Status</div>
-                <Badge variant={rental.deposit_status === "refunded" ? "success" : rental.deposit_status === "claimed" ? "danger" : "warning"} className="capitalize mt-1">{rental.deposit_status}</Badge>
+                <Badge variant={rental.deposit_status === "refunded" ? "success" : rental.deposit_status === "forfeited" ? "danger" : "warning"} className="capitalize mt-1">{rental.deposit_status}</Badge>
               </div>
             </div>
           </Card>
@@ -138,7 +145,7 @@ export function RentalDetail() {
           <Card>
             <h3 className="font-semibold text-stone-900">Actions</h3>
             <div className="mt-3 space-y-2">
-              {isRenter && rental.status === "paid" && (
+              {isRenter && rental.status === "active" && (
                 <Button onClick={() => setReturnOpen(true)} className="w-full">
                   <Package className="h-4 w-4" /> Mark as returned
                 </Button>

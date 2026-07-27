@@ -9,16 +9,20 @@ import { apiClient } from "../lib/client";
 import { fmtMoney, fmtDate } from "../lib/utils";
 
 const STATUS_VARIANT: Record<string, "default" | "info" | "success" | "warning" | "danger" | "violet"> = {
-  paid: "info", returned: "warning", completed: "success",
-  disputed: "danger", cancelled: "default",
+  paid: "info", active: "violet", returned: "warning", completed: "success",
+  disputed: "danger", refunded: "default",
 };
+
+// Rental statuses per the state machine (paid -> active -> returned -> refunded/completed,
+// with disputed reachable from active/returned). Only refunded/completed are terminal.
+const TERMINAL_STATUSES = ["refunded", "completed"];
 
 export function Rentals() {
   const { data, isLoading } = useQuery({ queryKey: ["rentals"], queryFn: () => apiClient.listRentals() });
   const rentals = data?.data || [];
 
-  const active = rentals.filter((r) => ["paid", "returned"].includes(r.status));
-  const past = rentals.filter((r) => !["paid", "returned"].includes(r.status));
+  const active = rentals.filter((r) => !TERMINAL_STATUSES.includes(r.status));
+  const past = rentals.filter((r) => TERMINAL_STATUSES.includes(r.status));
 
   return (
     <div className="space-y-8">

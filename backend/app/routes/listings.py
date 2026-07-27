@@ -1,10 +1,14 @@
 """Listings routes — search, CRUD."""
+from decimal import Decimal
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from ..extensions import get_supabase
 from ..utils.errors import err
+from ..services.escrow_state_machine import commission_for_category
 
 bp = Blueprint("listings", __name__)
+
+RENTAL_COMMISSION_RATE = Decimal("0.10")  # matches the flat rate rentals.py charges — see create_rental
 
 
 # Columns that actually exist in public.listings per the real schema.
@@ -18,8 +22,8 @@ _USER_FIELDS = (
 )
 
 
-def _serialize_listing(row: dict) -> dict:
-    return {
+def _serialize_listing(row: dict, commission_rate: Decimal | None = None) -> dict:
+    out = {
         "id": row["id"],
         "seller_id": row["seller_id"],
         "title": row["title"],
@@ -37,6 +41,12 @@ def _serialize_listing(row: dict) -> dict:
         "updated_at": row.get("updated_at"),
         "seller": (row.get("seller") or {}),
     }
+    if commission_rate is not None:
+        # Checkout preview only — informational, matches what create_order/create_rental
+        # will actually charge/compute. Not present on list endpoints (avoids an extra
+        # commission_config query per row).
+        out["commission_rate"] = str(commission_rate)
+    return out
 
 
 @bp.get("")
@@ -96,7 +106,14 @@ def get_listing(listing_id):
         return err("not_found", "Listing not found", 404)
     row = res.data
     row["seller"] = row.pop("users") if row.get("users") else None
-    return jsonify(data=_serialize_listing(row))
+
+    if row.get("listing_type") == "rent":
+        commission_rate = RENTAL_COMMISSION_RATE
+    else:
+        configs = sb.table("commission_config").select("*").execute().data or []
+        commission_rate = commission_for_category(row["category"], configs)
+
+    return jsonify(data=_serialize_listing(row, commission_rate))
 
 
 @bp.post("")

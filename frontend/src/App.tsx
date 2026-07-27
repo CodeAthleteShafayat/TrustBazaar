@@ -9,6 +9,7 @@ import { Signup } from "./pages/Signup";
 import { Browse } from "./pages/Browse";
 import { ListingDetail } from "./pages/ListingDetail";
 import { CreateListing } from "./pages/CreateListing";
+import { Checkout } from "./pages/Checkout";
 import { Orders } from "./pages/Orders";
 import { OrderDetail } from "./pages/OrderDetail";
 import { Rentals } from "./pages/Rentals";
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="/dashboard" element={<Protected><PageTransition><Dashboard /></PageTransition></Protected>} />
         <Route path="/browse" element={<PageTransition><Browse /></PageTransition>} />
         <Route path="/listing/:id" element={<PageTransition><ListingDetail /></PageTransition>} />
+        <Route path="/checkout/:id" element={<Protected><PageTransition><Checkout /></PageTransition></Protected>} />
         <Route path="/orders" element={<Protected><PageTransition><Orders /></PageTransition></Protected>} />
         <Route path="/orders/:id" element={<Protected><PageTransition><OrderDetail /></PageTransition></Protected>} />
         <Route path="/rentals" element={<Protected><PageTransition><Rentals /></PageTransition></Protected>} />

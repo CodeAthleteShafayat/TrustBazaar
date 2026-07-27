@@ -45,11 +45,15 @@ Verified end-to-end against the **live Supabase DB**, not just read from source:
 - `/auth/me` with the token from either signup or login
 - Create listing (persists to `listings` table)
 - Buy a listing (creates an `orders` row, escrow held) — **this was broken and is now fixed, see §5.2, don't reintroduce the bug**
+- Rent a listing, return it, and have the owner confirm return + release the deposit (full lifecycle: `active` → `returned` → `completed`) — **this whole chain was broken and is now fixed, see §5.3 and §5.4, don't reintroduce these bugs**
 - `GET /api/listings/mine` — new endpoint, returns a seller's own listings across all statuses
 - Admin routes (`/api/admin/*`) correctly reject non-admins with 403 and allow `is_admin=true` users
 - Frontend Dashboard page (`/dashboard`) renders my listings/orders/rentals/wallet/trust score
+- Related products section on listing pages (same-category listings, excludes current one)
+- Checkout review page (`/checkout/:id`) — item summary, live commission/seller-payout preview (`GET /listings/:id` now returns `commission_rate`, computed the same way `create_order`/`create_rental` compute it, so the preview can't drift from what's actually charged), explicit "Pay" action instead of charging instantly on the listing page's Buy click. Still backed by `MockPaymentProvider` — see §9 for SSLCommerz status.
+- `create_order` now rejects buying a `rent`-type listing outright (previously only blocked on `status != active`, never checked `listing_type` — found while testing the checkout flow)
 
-**Not verified this session** — exists in code, looks reasonable on read, but nobody exercised it end-to-end recently: renting (`routes/rentals.py`, 251 lines), disputes (`routes/disputes.py` + admin dispute resolution), wallet payouts (`routes/wallet.py`), trust score computation (`services/trust_score_engine.py`), photo upload (`routes/upload.py`). Don't assume these are bug-free just because they compile and have no obvious issues on read — the two critical bugs below also looked fine on read.
+**Not verified this session** — exists in code, looks reasonable on read, but nobody exercised it end-to-end recently: disputes (`routes/disputes.py` + admin dispute resolution), wallet payouts (`routes/wallet.py`), trust score computation (`services/trust_score_engine.py`), photo upload (`routes/upload.py`). Don't assume these are bug-free just because they compile and have no obvious issues on read — the bugs in §5 also looked fine on read, and the rentals one (§5.3) sat undetected through an entire prior session of "verified working" claims because nobody actually completed a rental purchase, only read the code.
 
 ## 5. Two critical bugs fixed this session — know these before touching auth/db code
 
@@ -71,6 +75,26 @@ Symptom: buying/renting/disputing would randomly start failing with `postgrest.e
 
 **Rule going forward:** if you ever need to call `sb.auth.*` anywhere in the backend, use `get_supabase_auth_client()`, never `get_supabase()`. If a future refactor touches `extensions.py`, keep these separate.
 
+### 5.3 `create_rental` crashed on every listing that required a deposit
+
+`listings.deposit_required` is a **boolean** column ("does this rental need a deposit at all") — see §6, the naming is misleading. `routes/rentals.py`'s `create_rental` used to do `Decimal(str(listing.data["deposit_required"]))` as if that column held a money amount. `Decimal(str(True))` raises `decimal.InvalidOperation` — so any rental attempt on a listing with `deposit_required = true` (i.e. every seeded rental listing) 500'd immediately. This sat there un-noticed through the "Two critical bugs" section above being written and believed complete, because nobody actually completed a rental purchase — only read the code and the (passing) parts of the flow.
+
+**Fix:** the deposit is now computed as `listing.price * listing.deposit_rate` when `deposit_required` is true, `0` otherwise — consistent with how deposits are computed/displayed everywhere else in the app (see `ListingDetail.tsx`'s `depositAmount`). Also added a 1–15 day rental duration bound (`RENTAL` days must be `1 <= days <= 15`), enforced both server-side (`create_rental`) and client-side (date pickers in the "Reserve rental dates" dialog).
+
+**Lesson for whoever reads this next:** "the code compiles and the happy-path columns line up" is not the same as "this endpoint has been called." Prefer curling the actual endpoint with a real payload over reading the function and reasoning about it — this bug and the two above all looked completely fine on read.
+
+### 5.4 The rental return/deposit-release flow was a dead end — fixed, but with a known gap left open
+
+Fixing §5.3 made `create_rental` succeed, which immediately surfaced that the *rest* of the rental lifecycle didn't work either:
+
+- `create_rental` set the initial status to `"paid"`. Per `VALID_RENTAL_TRANSITIONS` in `services/escrow_state_machine.py`, `"returned"` is only reachable from `"active"` — and **nothing anywhere in the codebase** (no route, no scheduled task — `app/tasks/` exists but is empty despite `APScheduler` being a dependency) ever transitioned a rental from `"paid"` to `"active"`. So `mark_returned()` could never succeed, meaning renters could never return an item and owners could never get the deposit released. The frontend made this worse by gating the "Mark as returned" button on `status === "paid"` — showing it at the one point where clicking it would fail, and hiding it once the (unreachable) `"active"` state was hit.
+  **Fix:** `create_rental` now starts rentals directly at `"active"` (there's no separate "handover" step in this MVP — matches how the seed data already portrayed it). `RentalDetail.tsx`'s button now gates on `"active"` to match.
+- `confirm_return` tried to write a `completed_at` column that **does not exist** on the live `rentals` table (same class of drift as §6 — `orders` has `completed_at`, `rentals` doesn't). 500'd every time. Removed the write.
+- `RentalDetail.tsx` compared `deposit_status` to `"claimed"` for the danger-badge color; the real enum value is `"forfeited"`. Cosmetic, but the badge could never actually turn red. Fixed.
+- **Left as a known gap, not fixed:** `confirm_return` always does a full deposit refund. The "Reserve/Confirm return" dialog in the frontend offers "Partial refund" and "Claim full deposit" options and sends `deposit_action` + `partial_amount` in the request body, but the backend endpoint never reads the body at all — those options are silently ignored. Implementing the actual payout split for partial/claim is a business-rule decision (how is a disputed claim mediated vs. an owner-asserted partial deduction with no renter pushback?), not a bug fix, so I didn't invent one. Whoever picks this up should either wire it up or remove those options from the dialog until it's designed.
+
+Verified end-to-end via curl: create rental → renter marks returned → owner confirms return (full refund) → status lands on `completed`/`deposit_status: refunded`, wallet ledger entries created for both parties.
+
 ## 6. Known schema drift — don't trust `supabase/migrations/002_listings.sql` blindly
 
 The live `listings` table's actual columns are: `photo_urls` (not `photos`), `rent_per_day` (not `rental_price_per_day`), `deposit_required` (boolean flag, not an amount — confusingly named), `deposit_rate`, and there is **no** `condition` or `declared_value` column. `supabase/migrations/002_listings.sql` describes an older/different shape that does not match what's actually live.
@@ -86,10 +110,13 @@ Prices are BDT (৳), not USD. Range convention for demo listings: ৳100–৳1
 - `/dashboard` — the logged-in home base (added this session): my listings (with edit/remove), recent orders/rentals, wallet balance, trust score. This is where login/signup now redirect by default (previously `/browse`).
 - `/create` — list an item; also handles editing via `/create?edit=<listingId>` (added this session)
 - `/admin` — dispute queue + commission config, now actually gated behind `user.is_admin` both client-side (route guard + nav link visibility in `Layout.tsx`) and server-side (`admin_required` decorator in `routes/admin.py`). Previously anyone logged in could reach it.
+- `/checkout/:id` — review-before-pay step for buying (added this session); the "Reserve rental" dialog on the listing page already served this purpose for renting, so it wasn't touched.
 
 ## 9. Suggested next steps for whoever picks this up
 
-- Exercise the rental flow, dispute flow, and wallet payout flow end-to-end against the live DB the way §4 was verified — they're unverified, not necessarily broken.
+- **SSLCommerz integration was requested but explicitly deferred**, not attempted blind: it's a redirect-based gateway (initiate → redirect to their hosted page → success/fail/cancel callback → IPN verification), a meaningfully different shape than `PaymentProvider.charge()`'s synchronous return-success-or-fail today. Needs real sandbox `store_id`/`store_password` from developer.sslcommerz.com before anyone should write the adapter — implementing against guessed request/response shapes would just be another unverified "looks done" trap like the ones in §5. Get credentials first, then build `SSLCommerzAdapter` against `PaymentProvider`'s interface, then add the redirect/callback routes.
+- Cart stayed single-item-checkout by explicit choice (not multi-item) — see the checkout flow in §4/§8. If multi-item cart is wanted later, it's a real schema/backend change (orders currently map 1:1 to a listing), not a frontend-only add.
+- Exercise the dispute flow and wallet payout flow end-to-end against the live DB the way §4 was verified — they're unverified, not necessarily broken (the rental flow *was* in this category and turned out to be broken, see §5.3, so don't assume these are fine either).
 - Reconcile `supabase/migrations/002_listings.sql` (and check the other migration files for the same drift) against the live schema, or delete/rewrite the stale ones so they stop being misleading.
 - `MockPaymentProvider` (`services/payment_provider.py`) always succeeds and does nothing real — fine for demo, but don't assume any real payment integration exists.
 - `.puku/` directory is a local AI-tool cache (embeddings DB etc.), gitignored, not part of the app.

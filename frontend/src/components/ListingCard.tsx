@@ -42,9 +42,13 @@ export function ListingCard({ listing, index = 0 }: { listing: Listing; index?: 
             <p className="mt-1 text-xs text-muted-foreground line-clamp-1">{listing.description}</p>
             <div className="mt-3 flex items-center justify-between">
               <div>
-                <span className="text-lg font-bold">{fmtMoney(listing.price)}</span>
-                {listing.listing_type === "rent" && listing.rent_per_day && (
-                  <span className="text-xs text-muted-foreground"> /day</span>
+                {listing.listing_type === "rent" && listing.rent_per_day ? (
+                  <>
+                    <span className="text-lg font-bold">{fmtMoney(listing.rent_per_day)}</span>
+                    <span className="text-xs text-muted-foreground"> /day</span>
+                  </>
+                ) : (
+                  <span className="text-lg font-bold">{fmtMoney(listing.price)}</span>
                 )}
               </div>
               <span className="text-xs text-muted-foreground capitalize">{listing.category.replace("_", " ")}</span>

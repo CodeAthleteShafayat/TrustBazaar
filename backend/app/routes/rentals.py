@@ -81,6 +81,9 @@ def create_rental():
         return err("validation_error", "end_date must be on or after start_date", 400)
 
     days = (ed - sd).days + 1
+    if days < 1 or days > 15:
+        return err("validation_error", "Rentals must be between 1 and 15 days", 400)
+
     fee_per_day = Decimal(str(listing.data["rent_per_day"]))
     rental_fee = (fee_per_day * days).quantize(Decimal("0.01"))
 
@@ -91,11 +94,9 @@ def create_rental():
         if listing.data.get("deposit_rate") is not None
         else deposit_rate_for_category(listing.data["category"], configs)
     )
-    if listing.data.get("deposit_required") is not None:
-        declared_value = Decimal(str(listing.data["deposit_required"]))
-    else:
-        # Use the rental fee as the implicit declared value when not set.
-        declared_value = rental_fee
+    # deposit_required is a boolean flag on the listing, not an amount — the
+    # declared value the deposit is computed against is the listing's price.
+    declared_value = Decimal(str(listing.data["price"])) if listing.data.get("deposit_required") else Decimal("0")
     deposit_amount = (declared_value * deposit_rate).quantize(Decimal("0.01"))
 
     rental_commission_rate = Decimal("0.10")
@@ -119,7 +120,11 @@ def create_rental():
         "deposit_rate": str(deposit_rate),
         "deposit_amount": str(deposit_amount),
         "commission": str(commission),
-        "status": "paid",
+        # No separate "handover" step in this MVP — the renter can use the item as soon as
+        # payment clears, so the rental starts "active" (the state "returned" is reachable
+        # from). Starting at "paid" left the flow stuck: nothing ever transitioned it to
+        # "active", so mark_returned() could never succeed.
+        "status": "active",
         "deposit_status": "held",
         "deposit_release_at": deposit_release_at.isoformat(),
     }
@@ -197,10 +202,13 @@ def confirm_return(rental_id):
     if not is_valid_rental_transition(rental.data["status"], "completed"):
         return err("escrow_invalid_transition", f"Cannot complete from {rental.data['status']}", 409)
 
+    # NOTE: always does a full refund — the frontend dialog also offers "partial" and
+    # "claim" deposit actions, but this endpoint doesn't read/honor deposit_action from
+    # the body at all yet. Not fixed here: the payout split for partial/claim is a
+    # business-rule decision, not a bug fix. See PRODUCT_UPDATE.md.
     sb.table("rentals").update({
         "status": "completed",
         "deposit_status": "refunded",
-        "completed_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", str(rental_id)).execute()
 
     sb.table("wallet_ledger").insert([

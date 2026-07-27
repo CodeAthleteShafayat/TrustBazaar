@@ -13,6 +13,7 @@ export type Listing = {
   rent_per_day?: string | null;
   deposit_required?: string | null;
   deposit_rate?: string | null;
+  commission_rate?: string;
   photo_urls: string[];
   status: "active" | "sold" | "rented" | "draft" | "removed";
   location?: string | null;
@@ -63,8 +64,8 @@ export type Rental = {
   deposit_amount: string;
   commission: string;
   net_to_owner?: string | null;
-  status: "paid" | "returned" | "completed" | "disputed" | "cancelled";
-  deposit_status: "held" | "refunded" | "partial" | "claimed";
+  status: "paid" | "active" | "returned" | "disputed" | "refunded" | "completed";
+  deposit_status: "held" | "refunded" | "partial" | "forfeited";
   paid_at?: string | null;
   returned_at?: string | null;
   deposit_release_at?: string | null;

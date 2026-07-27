@@ -81,6 +81,8 @@ def create_order():
     listing = sb.table("listings").select("*").eq("id", listing_id).maybe_single().execute()
     if not listing.data or listing.data["status"] != "active":
         return err("conflict", "Listing not available", 409)
+    if listing.data["listing_type"] != "sale":
+        return err("validation_error", "Listing is not for sale", 400)
     if listing.data["seller_id"] == uid:
         return err("validation_error", "Cannot buy your own listing", 400)
 

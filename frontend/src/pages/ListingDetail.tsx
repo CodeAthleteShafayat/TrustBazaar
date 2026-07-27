@@ -37,21 +37,12 @@ export function ListingDetail() {
   });
   const related = (relatedData?.data || []).filter((l) => l.id !== id).slice(0, 4);
 
-  const buyMutation = useMutation({
-    mutationFn: () => apiClient.createOrder(id!),
-    onSuccess: (res) => {
-      toast.success("Order created. Money is in escrow.");
-      queryClient.invalidateQueries({ queryKey: ["listings"] });
-      navigate(`/orders/${res.data.id}`);
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
-
   const rentMutation = useMutation({
     mutationFn: () => apiClient.createRental({ listing_id: id!, start_date: startDate, end_date: endDate }),
     onSuccess: (res) => {
       toast.success("Rental reserved. Deposit held in escrow.");
       setRentOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
       navigate(`/rentals/${res.data.id}`);
     },
     onError: (e: any) => toast.error(e.message),
@@ -64,6 +55,18 @@ export function ListingDetail() {
   const photos = (listing.photo_urls && listing.photo_urls.length)
     ? listing.photo_urls
     : ["https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=800"];
+
+  const hasDeposit = listing.listing_type === "rent" && listing.deposit_required === "True";
+  const depositAmount = hasDeposit ? Number(listing.price) * Number(listing.deposit_rate || 0) : 0;
+  const MIN_RENTAL_DAYS = 1;
+  const MAX_RENTAL_DAYS = 15;
+  const rentalDays = startDate && endDate
+    ? Math.floor((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1
+    : 0;
+  const rentalDaysValid = rentalDays >= MIN_RENTAL_DAYS && rentalDays <= MAX_RENTAL_DAYS;
+  const maxEndDate = startDate
+    ? new Date(new Date(startDate).getTime() + (MAX_RENTAL_DAYS - 1) * 86400000).toISOString().slice(0, 10)
+    : undefined;
 
   return (
     <div className="space-y-6">
@@ -127,14 +130,18 @@ export function ListingDetail() {
         <div className="space-y-4">
           <Card>
             <div className="flex items-baseline justify-between">
-              <span className="text-4xl font-bold text-stone-900">{fmtMoney(listing.price)}</span>
-              {listing.listing_type === "rent" && listing.rent_per_day && (
-                <span className="text-sm text-stone-500">{fmtMoney(listing.rent_per_day)}/day</span>
+              {listing.listing_type === "rent" && listing.rent_per_day ? (
+                <>
+                  <span className="text-4xl font-bold text-stone-900">{fmtMoney(listing.rent_per_day)}</span>
+                  <span className="text-sm text-stone-500">/day</span>
+                </>
+              ) : (
+                <span className="text-4xl font-bold text-stone-900">{fmtMoney(listing.price)}</span>
               )}
             </div>
-            {listing.listing_type === "rent" && listing.deposit_required && (
+            {hasDeposit && (
               <div className="mt-1 text-sm text-stone-500">
-                Deposit (refundable): <span className="font-medium text-stone-800">{fmtMoney(listing.deposit_required)}</span>
+                Deposit (refundable): <span className="font-medium text-stone-800">{fmtMoney(depositAmount)}</span>
               </div>
             )}
             <div className="mt-6 space-y-3">
@@ -147,7 +154,7 @@ export function ListingDetail() {
                   <Calendar className="h-4 w-4" /> Reserve rental
                 </Button>
               ) : (
-                <Button onClick={() => buyMutation.mutate()} loading={buyMutation.isPending} className="w-full">
+                <Button onClick={() => navigate(`/checkout/${id}`)} className="w-full">
                   <ShoppingBag className="h-4 w-4" /> Buy with escrow
                 </Button>
               )}
@@ -198,22 +205,46 @@ export function ListingDetail() {
       )}
 
       <Dialog open={rentOpen} onClose={() => setRentOpen(false)} title="Reserve rental dates">
-        <form onSubmit={(e) => { e.preventDefault(); rentMutation.mutate(); }} className="space-y-4">
-          <Input label="Start date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-          <Input label="End date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+        <form onSubmit={(e) => { e.preventDefault(); if (rentalDaysValid) rentMutation.mutate(); }} className="space-y-4">
+          <p className="text-xs text-stone-500">Rentals run 1–15 days.</p>
+          <Input
+            label="Start date"
+            type="date"
+            value={startDate}
+            min={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => { setStartDate(e.target.value); setEndDate(""); }}
+            required
+          />
+          <Input
+            label="End date"
+            type="date"
+            value={endDate}
+            min={startDate || undefined}
+            max={maxEndDate}
+            disabled={!startDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            required
+          />
           {startDate && endDate && listing.rent_per_day && (
             <div className="rounded-xl bg-orange-50 border border-orange-200 p-4 text-sm">
               <div className="flex justify-between">
                 <span className="text-stone-600">Days</span>
-                <span className="font-medium text-stone-900">{Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000))}</span>
+                <span className="font-medium text-stone-900">{rentalDays}</span>
+              </div>
+              <div className="mt-2 flex justify-between">
+                <span className="text-stone-600">Rental fee</span>
+                <span className="font-medium text-stone-900">{fmtMoney(Number(listing.rent_per_day) * rentalDays)}</span>
               </div>
               <div className="mt-2 flex justify-between">
                 <span className="text-stone-600">Deposit (held)</span>
-                <span className="font-medium text-stone-900">{fmtMoney(listing.deposit_required || 0)}</span>
+                <span className="font-medium text-stone-900">{fmtMoney(depositAmount)}</span>
               </div>
+              {!rentalDaysValid && (
+                <p className="mt-2 text-rose-600">Rentals must be between 1 and 15 days.</p>
+              )}
             </div>
           )}
-          <Button type="submit" loading={rentMutation.isPending} className="w-full">Confirm reservation</Button>
+          <Button type="submit" loading={rentMutation.isPending} disabled={!rentalDaysValid} className="w-full">Confirm reservation</Button>
         </form>
       </Dialog>
     </div>
