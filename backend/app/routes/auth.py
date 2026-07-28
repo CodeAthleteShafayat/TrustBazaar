@@ -2,7 +2,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from ..extensions import get_supabase, get_supabase_auth_client
-from ..services.otp_service import get_otp_service, verify as verify_otp
+from ..services.otp_service import get_otp_service
 from ..utils.errors import err
 
 bp = Blueprint("auth", __name__)
@@ -65,25 +65,35 @@ def otp_request():
     target = body.get("target")
     if not target:
         return err("validation_error", "target required", 400)
-    code = get_otp_service().request(channel=channel, target=target)
-    return jsonify(ok=True, dev_code=code)
+    # The plaintext OTP is delivered out-of-band (log/transport) — never
+    # returned in this response.
+    get_otp_service().request(channel=channel, target=target)
+    return jsonify(ok=True)
 
 
 @bp.post("/otp/verify")
 def otp_verify():
     body = request.get_json(force=True) or {}
+    channel = body.get("channel", "email")
     target = body.get("target")
     code = body.get("code")
     if not target or not code:
         return err("validation_error", "target and code required", 400)
-    if not verify_otp(code):
-        return err("otp_invalid", "Code is invalid", 401)
+
+    # Verify that this exact (channel, target) slot holds the supplied code.
+    # The OTP service is responsible for hashing, expiry, and single-use —
+    # we only check authorization here.
+    if not get_otp_service().verify(channel=channel, target=target, code=code):
+        return err("otp_invalid", "Code is invalid or expired", 401)
 
     sb = get_supabase()
-    # In MVP we mint a token directly for the demo user matching email/phone.
-    user = sb.table("users").select("id, email").or_(f"email.eq.{target},phone.eq.{target}").maybe_single().execute()
+    user = sb.table("users").select("id, email, display_name, phone, trust_score, trust_tier, avatar_url, joined_at, is_admin").or_(f"email.eq.{target},phone.eq.{target}").maybe_single().execute()
     if not user.data:
         return err("not_found", "Account not found for that target", 404)
+    # JWT is only minted after a successful OTP verification against the
+    # specific target — an attacker who guesses a code cannot impersonate
+    # any other user, because the OTP is bound to the target it was issued
+    # for.
     token = create_access_token(identity=user.data["id"])
     return jsonify(data={"access_token": token, "user": user.data})
 

@@ -22,3 +22,7 @@ frontend/.vite/
 
 # OS
 .DS_Store
+
+# Stray / generated
+package-lock.json
+frontend/tsconfig.tsbuildinfo

@@ -1,6 +1,4 @@
 """Admin routes — gated to users with users.is_admin = true."""
-from datetime import datetime, timezone
-from decimal import Decimal
 from functools import wraps
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -37,66 +35,31 @@ def list_disputes():
 def resolve_dispute(dispute_id):
     body = request.get_json(force=True) or {}
     decision = body.get("decision")
-    if decision not in ("refund", "release", "split"):
-        return err("validation_error", "decision must be refund|release|split", 400)
     admin_notes = body.get("admin_notes", "")
     sb = get_supabase()
 
-    res = sb.table("disputes").update({
-        "status": "resolved",
-        "resolution": decision,
+    # Persist admin notes via a cheap update on the dispute row first —
+    # this is non-financial metadata only. The financial resolution is
+    # delegated entirely to resolve_dispute_atomic so dispute state, the
+    # order/rental state machine, and wallet_ledger commits as one
+    # Postgres transaction.
+    sb.table("disputes").update({
         "admin_notes": admin_notes,
-        "resolved_at": datetime.now(timezone.utc).isoformat(),
-        "split_buyer": body.get("split_buyer"),
-        "split_seller": body.get("split_seller"),
-    }).eq("id", str(dispute_id)).execute()
-    if not res.data:
-        return err("not_found", "Dispute not found", 404)
-    dispute = res.data[0]
+    }).eq("id", str(dispute_id)).eq("status", "open").execute()
 
-    if dispute.get("order_id"):
-        if decision == "refund":
-            sb.table("orders").update({"status": "refunded", "escrow": "refunded"}).eq("id", dispute["order_id"]).execute()
-            o = sb.table("orders").select("buyer_id, amount").eq("id", dispute["order_id"]).maybe_single().execute()
-            if o.data:
-                sb.table("wallet_ledger").insert({
-                    "user_id": o.data["buyer_id"], "type": "refund",
-                    "amount": o.data["amount"], "reference": f"order:{dispute['order_id']}",
-                }).execute()
-        else:
-            sb.table("orders").update({"status": "completed", "escrow": "released"}).eq("id", dispute["order_id"]).execute()
-            o = sb.table("orders").select("seller_id, net_to_seller").eq("id", dispute["order_id"]).maybe_single().execute()
-            if o.data:
-                sb.table("wallet_ledger").insert({
-                    "user_id": o.data["seller_id"], "type": "release",
-                    "amount": o.data["net_to_seller"], "reference": f"order:{dispute['order_id']}",
-                }).execute()
+    rpc_res = sb.rpc("resolve_dispute_atomic", {
+        "p_dispute_id":   str(dispute_id),
+        "p_decision":     decision,
+        "p_split_buyer":  body.get("split_buyer"),
+        "p_split_seller": body.get("split_seller"),
+    }).execute()
+    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
+        err_code = (rpc_res.data or {}).get("error") or "conflict"
+        err_msg = (rpc_res.data or {}).get("message") or "Could not resolve dispute"
+        status_map = {"not_found": 404, "validation_error": 400}
+        return err(err_code, err_msg, status_map.get(err_code, 409))
 
-    if dispute.get("rental_id"):
-        r = sb.table("rentals").select("renter_id, owner_id, deposit_amount, net_to_owner").eq("id", dispute["rental_id"]).maybe_single().execute()
-        if r.data:
-            if decision == "refund":
-                sb.table("rentals").update({"status": "refunded", "deposit_status": "refunded"}).eq("id", dispute["rental_id"]).execute()
-                sb.table("wallet_ledger").insert([
-                    {"user_id": r.data["renter_id"], "type": "refund", "amount": r.data["deposit_amount"], "reference": f"rental:{dispute['rental_id']}"},
-                    {"user_id": r.data["owner_id"], "type": "release", "amount": r.data["net_to_owner"], "reference": f"rental:{dispute['rental_id']}"},
-                ]).execute()
-            elif decision == "release":
-                sb.table("rentals").update({"status": "completed", "deposit_status": "forfeited"}).eq("id", dispute["rental_id"]).execute()
-                sb.table("wallet_ledger").insert({
-                    "user_id": r.data["owner_id"], "type": "release",
-                    "amount": r.data["deposit_amount"], "reference": f"rental-deduct:{dispute['rental_id']}",
-                }).execute()
-            else:
-                sb.table("rentals").update({"status": "completed", "deposit_status": "partial"}).eq("id", dispute["rental_id"]).execute()
-                buyer_amt = Decimal(str(body.get("split_buyer", r.data["deposit_amount"])))
-                seller_amt = Decimal(str(body.get("split_seller", "0")))
-                sb.table("wallet_ledger").insert([
-                    {"user_id": r.data["renter_id"], "type": "refund", "amount": str(buyer_amt), "reference": f"rental:{dispute['rental_id']}"},
-                    {"user_id": r.data["owner_id"], "type": "release", "amount": str(seller_amt), "reference": f"rental:{dispute['rental_id']}"},
-                ]).execute()
-
-    return jsonify(data=dispute)
+    return jsonify(data=rpc_res.data)
 
 
 @bp.get("/commission")

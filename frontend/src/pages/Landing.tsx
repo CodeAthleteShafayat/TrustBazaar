@@ -36,7 +36,7 @@ export function Landing() {
   const heroY = useTransform(scrollYProgress, [0, 1], [0, 80]);
   const heroOpacity = useTransform(scrollYProgress, [0, 0.8], [1, 0.2]);
 
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["listings", "landing"],
     queryFn: () => apiClient.listListings(),
   });
@@ -191,12 +191,16 @@ export function Landing() {
             See all listings <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-        {featured.length === 0 ? (
+        {isLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="aspect-square rounded-2xl bg-stone-200/60 animate-pulse" />
             ))}
           </div>
+        ) : featured.length === 0 ? (
+          <p className="rounded-2xl border border-stone-200 bg-white px-6 py-10 text-center text-stone-500">
+            No listings yet — be the first to list something.
+          </p>
         ) : (
           <motion.div
             initial="hidden"

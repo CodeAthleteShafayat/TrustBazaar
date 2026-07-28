@@ -70,10 +70,8 @@ def create_rental():
     sb = get_supabase()
 
     listing = sb.table("listings").select("*").eq("id", listing_id).maybe_single().execute()
-    if not listing.data or listing.data["listing_type"] != "rent":
-        return err("conflict", "Listing not available for rent", 409)
-    if listing.data["seller_id"] == uid:
-        return err("validation_error", "Cannot rent your own listing", 400)
+    if not listing.data:
+        return err("not_found", "Listing not found", 404)
 
     sd = datetime.fromisoformat(start_date).date()
     ed = datetime.fromisoformat(end_date).date()
@@ -110,26 +108,33 @@ def create_rental():
 
     deposit_release_at = (datetime.combine(ed, datetime.min.time()) + timedelta(hours=current_app.config["DEPOSIT_CLAIM_WINDOW_HOURS"])).astimezone(timezone.utc)
 
-    payload = {
-        "listing_id": listing_id,
-        "renter_id": uid,
-        "owner_id": listing.data["seller_id"],
-        "start_date": sd.isoformat(),
-        "end_date": ed.isoformat(),
-        "rental_fee": str(rental_fee),
-        "deposit_rate": str(deposit_rate),
-        "deposit_amount": str(deposit_amount),
-        "commission": str(commission),
-        # No separate "handover" step in this MVP — the renter can use the item as soon as
-        # payment clears, so the rental starts "active" (the state "returned" is reachable
-        # from). Starting at "paid" left the flow stuck: nothing ever transitioned it to
-        # "active", so mark_returned() could never succeed.
-        "status": "active",
-        "deposit_status": "held",
-        "deposit_release_at": deposit_release_at.isoformat(),
-    }
-    res = sb.table("rentals").insert(payload).execute()
-    return jsonify(data=_serialize_rental(res.data[0])), 201
+    # Single Postgres transaction: row-locks the listing, verifies
+    # listing_type='rent', checks no existing non-terminal rental overlaps
+    # the requested daterange, inserts the rental. Returns the rental row
+    # or {error, message}.
+    rpc_res = sb.rpc("create_rental_atomic", {
+        "p_listing_id": listing_id,
+        "p_renter_id": uid,
+        "p_start_date": sd.isoformat(),
+        "p_end_date": ed.isoformat(),
+        "p_rental_fee": str(rental_fee),
+        "p_deposit_rate": str(deposit_rate),
+        "p_deposit_amount": str(deposit_amount),
+        "p_commission": str(commission),
+        "p_deposit_release_at": deposit_release_at.isoformat(),
+    }).execute()
+
+    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
+        # Race: another renter took the dates, or listing was withdrawn, etc.
+        # Refund the charge so we never leave payment collected against a
+        # failed DB write.
+        get_payment_provider().refund(charge_id=charge.charge_id, amount=rental_fee + deposit_amount)
+        err_code = (rpc_res.data or {}).get("error") or "conflict"
+        err_msg = (rpc_res.data or {}).get("message") or "Could not create rental"
+        status = 409 if err_code == "conflict" else 400
+        return err(err_code, err_msg, status)
+
+    return jsonify(data=_serialize_rental(rpc_res.data)), 201
 
 
 @bp.get("")
@@ -191,31 +196,32 @@ def mark_returned(rental_id):
 @bp.post("/<uuid:rental_id>/confirm-return")
 @jwt_required()
 def confirm_return(rental_id):
-    """Owner confirms clean return — refund full deposit."""
+    """Owner confirms clean return — refund full deposit.
+
+    NOTE: always does a full refund — the frontend dialog also offers "partial" and
+    "claim" deposit actions, but this endpoint doesn't read/honor deposit_action from
+    the body at all yet. Not fixed here: the payout split for partial/claim is a
+    business-rule decision, not a bug fix. See PRODUCT_UPDATE.md.
+    """
     uid = get_jwt_identity()
     sb = get_supabase()
-    rental = sb.table("rentals").select("*").eq("id", str(rental_id)).maybe_single().execute()
-    if not rental.data:
-        return err("not_found", "Rental not found", 404)
-    if rental.data["owner_id"] != uid:
-        return err("forbidden", "Not the owner", 403)
-    if not is_valid_rental_transition(rental.data["status"], "completed"):
-        return err("escrow_invalid_transition", f"Cannot complete from {rental.data['status']}", 409)
-
-    # NOTE: always does a full refund — the frontend dialog also offers "partial" and
-    # "claim" deposit actions, but this endpoint doesn't read/honor deposit_action from
-    # the body at all yet. Not fixed here: the payout split for partial/claim is a
-    # business-rule decision, not a bug fix. See PRODUCT_UPDATE.md.
-    sb.table("rentals").update({
-        "status": "completed",
-        "deposit_status": "refunded",
-    }).eq("id", str(rental_id)).execute()
-
-    sb.table("wallet_ledger").insert([
-        {"user_id": rental.data["renter_id"], "type": "refund", "amount": rental.data["deposit_amount"], "reference": f"rental:{rental_id}"},
-        {"user_id": rental.data["owner_id"], "type": "release", "amount": rental.data["net_to_owner"], "reference": f"rental:{rental_id}"},
-    ]).execute()
-    return jsonify(data=_serialize_rental(sb.table("rentals").select("*").eq("id", str(rental_id)).maybe_single().execute().data))
+    # All state-machine + ledger work happens inside one Postgres transaction.
+    # The RPC is idempotent: a second call returns the already-completed
+    # rental without producing duplicate refund/release ledger entries.
+    rpc_res = sb.rpc("complete_rental_atomic", {
+        "p_rental_id": str(rental_id),
+        "p_actor_id": uid,
+    }).execute()
+    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
+        err_code = (rpc_res.data or {}).get("error") or "conflict"
+        err_msg = (rpc_res.data or {}).get("message") or "Could not complete rental"
+        status_map = {
+            "forbidden": 403,
+            "escrow_invalid_transition": 409,
+            "not_found": 404,
+        }
+        return err(err_code, err_msg, status_map.get(err_code, 400))
+    return jsonify(data=_serialize_rental(rpc_res.data))
 
 
 @bp.post("/<uuid:rental_id>/claim")
@@ -253,7 +259,17 @@ def claim_deposit(rental_id):
 @bp.post("/<uuid:rental_id>/fast-forward")
 @jwt_required()
 def fast_forward_rental(rental_id):
-    """Demo-only: collapse deposit_release_at to now."""
+    """Demo-only: collapse deposit_release_at to now.
+
+    Admin-only. Previously any authenticated user could call this and skip
+    the deposit-claim window — a logged-in renter could collapse the time
+    the owner has to file a deposit claim. Now requires users.is_admin = true.
+    """
+    uid = get_jwt_identity()
     sb = get_supabase()
+    admin = sb.table("users").select("is_admin").eq("id", uid).maybe_single().execute()
+    if not admin.data or not admin.data.get("is_admin"):
+        return err("forbidden", "Admin access required", 403)
+
     sb.table("rentals").update({"deposit_release_at": datetime.now(timezone.utc).isoformat()}).eq("id", str(rental_id)).execute()
     return jsonify(data=_serialize_rental(sb.table("rentals").select("*").eq("id", str(rental_id)).maybe_single().execute().data))
