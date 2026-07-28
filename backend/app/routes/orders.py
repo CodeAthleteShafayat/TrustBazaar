@@ -42,6 +42,10 @@ def _maybe_auto_release(order: dict, sb) -> dict:
     forever once the window passed, with the buyer given no action to take. Evaluated lazily
     whenever an order is read, since that's simpler and just as correct as polling for a demo
     at this scale — no need for a real background worker yet.
+
+    Delegates to release_expired_order_atomic() (012_auto_release_order.sql), which uses the
+    same wallet_ledger reference key as complete_order_atomic ('order:<id>:release') so a
+    race against an explicit buyer confirm can never double-credit the seller.
     """
     if order.get("status") not in ("paid", "shipped") or order.get("escrow") != "held":
         return order
@@ -52,23 +56,10 @@ def _maybe_auto_release(order: dict, sb) -> dict:
     if datetime.now(timezone.utc) < release_dt:
         return order
 
-    # The .eq("status", ...) guard makes this safe under concurrent reads — if another
-    # request already released it, this update matches zero rows instead of double-crediting
-    # the wallet ledger.
-    res = sb.table("orders").update({
-        "status": "completed",
-        "escrow": "released",
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", order["id"]).eq("status", order["status"]).execute()
-    if not res.data:
+    rpc_res = sb.rpc("release_expired_order_atomic", {"p_order_id": order["id"]}).execute()
+    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
         return order
-    updated = res.data[0]
-    sb.table("wallet_ledger").insert({
-        "user_id": updated["seller_id"],
-        "type": "release",
-        "amount": updated["net_to_seller"],
-        "reference": f"order:{updated['id']}",
-    }).execute()
+    updated = rpc_res.data
     if "listing" in order:
         updated["listing"] = order["listing"]
     return updated
@@ -120,13 +111,14 @@ def create_order():
     uid = get_jwt_identity()
     sb = get_supabase()
 
+    # Read-only preflight so we can compute commission + amount before
+    # touching the payment provider. The atomic check on listing status /
+    # seller-id happens inside the RPC.
     listing = sb.table("listings").select("*").eq("id", listing_id).maybe_single().execute()
-    if not listing.data or listing.data["status"] != "active":
-        return err("conflict", "Listing not available", 409)
+    if not listing.data:
+        return err("not_found", "Listing not found", 404)
     if listing.data["listing_type"] != "sale":
         return err("validation_error", "Listing is not for sale", 400)
-    if listing.data["seller_id"] == uid:
-        return err("validation_error", "Cannot buy your own listing", 400)
 
     configs = sb.table("commission_config").select("*").execute().data or []
     commission_rate = commission_for_category(listing.data["category"], configs)
@@ -143,20 +135,29 @@ def create_order():
         seconds=current_app.config["DEMO_FAST_FORWARD_SECONDS"]  # MVP: 30s; prod: RELEASE_WINDOW_DAYS
     )
 
-    payload = {
-        "listing_id": listing_id,
-        "buyer_id": uid,
-        "seller_id": listing.data["seller_id"],
-        "amount": str(amount),
-        "commission": str(commission),
-        "status": "paid",
-        "escrow": "held",
-        "release_at": release_at.isoformat(),
-        "demo_fast_forward_seconds": current_app.config["DEMO_FAST_FORWARD_SECONDS"],
-    }
-    res = sb.table("orders").insert(payload).execute()
-    order = res.data[0]
-    sb.table("listings").update({"status": "sold"}).eq("id", listing_id).execute()
+    # Single transaction inside Postgres: row-locks the listing, verifies
+    # status='active' and seller_id != uid, inserts the order, marks the
+    # listing sold. Returns the order on success, or {error, message} on
+    # the race the listing was just taken.
+    rpc_res = sb.rpc("create_order_atomic", {
+        "p_listing_id": listing_id,
+        "p_buyer_id": uid,
+        "p_amount": str(amount),
+        "p_commission": str(commission),
+        "p_release_at": release_at.isoformat(),
+        "p_demo_fast_forward_seconds": current_app.config["DEMO_FAST_FORWARD_SECONDS"],
+    }).execute()
+
+    if not rpc_res.data or isinstance(rpc_res.data, dict) and rpc_res.data.get("error"):
+        # RPC rejected: refund the charge so we never leave a successful
+        # payment dangling against a failed DB write.
+        get_payment_provider().refund(charge_id=charge.charge_id, amount=amount)
+        err_code = (rpc_res.data or {}).get("error") or "conflict"
+        err_msg = (rpc_res.data or {}).get("message") or "Could not create order"
+        status = 409 if err_code == "conflict" else 400
+        return err(err_code, err_msg, status)
+
+    order = rpc_res.data
     return jsonify(data=_serialize_order(order)), 201
 
 
@@ -220,28 +221,23 @@ def ship_order(order_id):
 def confirm_order(order_id):
     uid = get_jwt_identity()
     sb = get_supabase()
-    order = sb.table("orders").select("*").eq("id", str(order_id)).maybe_single().execute()
-    if not order.data:
-        return err("not_found", "Order not found", 404)
-    if order.data["buyer_id"] != uid:
-        return err("forbidden", "Not the buyer", 403)
-    if not is_valid_order_transition(order.data["status"], "completed"):
-        return err("escrow_invalid_transition", f"Cannot confirm from {order.data['status']}", 409)
-
-    sb.table("orders").update({
-        "status": "completed",
-        "escrow": "released",
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", str(order_id)).execute()
-
-    sb.table("wallet_ledger").insert({
-        "user_id": order.data["seller_id"],
-        "type": "release",
-        "amount": order.data["net_to_seller"],
-        "reference": f"order:{order_id}",
+    # All state-machine + ledger work happens inside one Postgres transaction.
+    # The RPC is idempotent: a second call returns the already-completed
+    # order without producing a duplicate release ledger entry.
+    rpc_res = sb.rpc("complete_order_atomic", {
+        "p_order_id": str(order_id),
+        "p_actor_id": uid,
     }).execute()
-
-    return jsonify(data=_serialize_order(sb.table("orders").select("*").eq("id", str(order_id)).maybe_single().execute().data))
+    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
+        err_code = (rpc_res.data or {}).get("error") or "conflict"
+        err_msg = (rpc_res.data or {}).get("message") or "Could not confirm order"
+        status_map = {
+            "forbidden": 403,
+            "escrow_invalid_transition": 409,
+            "not_found": 404,
+        }
+        return err(err_code, err_msg, status_map.get(err_code, 400))
+    return jsonify(data=_serialize_order(rpc_res.data))
 
 
 @bp.post("/<uuid:order_id>/dispute")
@@ -278,7 +274,17 @@ def dispute_order(order_id):
 @bp.post("/<uuid:order_id>/fast-forward")
 @jwt_required()
 def fast_forward(order_id):
-    """Demo-only: collapse release_at to now so we can demo the auto-release path."""
+    """Demo-only: collapse release_at to now so we can demo the auto-release path.
+
+    Admin-only. Previously any authenticated user could call this and skip
+    the escrow release timer — a logged-in buyer could force-instant-release
+    any seller's order. Now requires users.is_admin = true.
+    """
+    uid = get_jwt_identity()
     sb = get_supabase()
+    admin = sb.table("users").select("is_admin").eq("id", uid).maybe_single().execute()
+    if not admin.data or not admin.data.get("is_admin"):
+        return err("forbidden", "Admin access required", 403)
+
     sb.table("orders").update({"release_at": datetime.now(timezone.utc).isoformat()}).eq("id", str(order_id)).execute()
     return jsonify(data=_serialize_order(sb.table("orders").select("*").eq("id", str(order_id)).maybe_single().execute().data))

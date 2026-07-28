@@ -48,9 +48,8 @@ export function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await apiClient.requestOtp(email);
-      if (res.dev_code) toast.success(`Dev OTP: ${res.dev_code}`);
-      else toast.success("OTP sent to your email");
+      await apiClient.requestOtp(email);
+      toast.success("OTP sent to your email");
       setStep("otp");
     } catch (err: any) {
       toast.error(err.message || "Failed to send OTP");
