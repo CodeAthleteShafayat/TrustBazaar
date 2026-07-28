@@ -1,9 +1,15 @@
 from supabase import create_client, Client
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 jwt = JWTManager()
 cors = CORS()
+# In-memory storage is fine for a single-process demo deployment; if this ever runs
+# behind multiple worker processes/dynos, point storage_uri at Redis instead so limits
+# are shared across them.
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 # supabase_admin uses the service-role key and bypasses RLS — only used server-side.
 # It is a single shared instance reused across every request, so it must NEVER have

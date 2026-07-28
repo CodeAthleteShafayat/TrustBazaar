@@ -49,7 +49,7 @@ export function Login() {
     setLoading(true);
     try {
       const res = await apiClient.requestOtp(email);
-      if (res.debug_code) toast.success(`Dev OTP: ${res.debug_code}`);
+      if (res.dev_code) toast.success(`Dev OTP: ${res.dev_code}`);
       else toast.success("OTP sent to your email");
       setStep("otp");
     } catch (err: any) {
@@ -133,8 +133,6 @@ export function Login() {
             <form onSubmit={verifyOtp} className="mt-6 space-y-4">
               <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs text-stone-700">
                 Code sent to <span className="font-medium text-stone-900">{email}</span>
-                <br />
-                <span className="text-orange-700">Demo code: 123456</span>
               </div>
               <Input label="Verification code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="123456" required inputMode="numeric" />
               <Button type="submit" loading={loading} className="w-full">Verify and sign in</Button>

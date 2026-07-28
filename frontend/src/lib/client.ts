@@ -152,9 +152,9 @@ export const apiClient = {
   login: (body: { email: string; password: string }) =>
     api<{ data: { access_token: string; user: User } }>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
   requestOtp: (email: string) =>
-    api<{ sent: true; debug_code?: string }>("/auth/otp/request", { method: "POST", body: JSON.stringify({ email }) }),
+    api<{ ok: true; dev_code?: string }>("/auth/otp/request", { method: "POST", body: JSON.stringify({ target: email, channel: "email" }) }),
   verifyOtp: (body: { email: string; code: string }) =>
-    api<{ data: { access_token: string; user: User } }>("/auth/otp/verify", { method: "POST", body: JSON.stringify(body) }),
+    api<{ data: { access_token: string; user: User } }>("/auth/otp/verify", { method: "POST", body: JSON.stringify({ target: body.email, code: body.code }) }),
   me: () => api<{ data: User }>("/auth/me", { token: tok() }),
 
   // Listings

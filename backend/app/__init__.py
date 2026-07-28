@@ -1,7 +1,7 @@
 from flask import Flask, jsonify
 import os
 from .config import Config
-from .extensions import init_supabase_if_configured, cors, jwt
+from .extensions import init_supabase_if_configured, cors, jwt, limiter
 from .routes.auth import bp as auth_bp
 from .routes.listings import bp as listings_bp
 from .routes.orders import bp as orders_bp
@@ -20,6 +20,7 @@ def create_app(config_class: type = Config) -> Flask:
     init_supabase_if_configured(app.config["SUPABASE_URL"], app.config["SUPABASE_SERVICE_ROLE_KEY"], app.config["SUPABASE_ANON_KEY"])
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["FRONTEND_ORIGIN"]}})
     jwt.init_app(app)
+    limiter.init_app(app)
 
     @app.get("/health")
     def health():
@@ -33,6 +34,10 @@ def create_app(config_class: type = Config) -> Flask:
     def internal(e):
         app.logger.exception(e)
         return jsonify(error={"code": "internal", "message": "Internal server error"}), 500
+
+    @app.errorhandler(429)
+    def rate_limited(e):
+        return jsonify(error={"code": "rate_limited", "message": "Too many requests — try again shortly."}), 429
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(listings_bp, url_prefix="/api/listings")

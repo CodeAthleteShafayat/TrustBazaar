@@ -32,6 +32,48 @@ def _listing_short(row: dict | None) -> dict | None:
     }
 
 
+def _maybe_auto_release(order: dict, sb) -> dict:
+    """Escrow safety net: once the release window passes with nobody acting, funds should
+    release to the seller automatically — that's what the countdown timer in the UI
+    promises ("Ready to release"), and what the state machine was designed to allow
+    (`"paid": {"shipped", "completed"} # auto-release after window`). Nothing ever actually
+    triggered this transition anywhere in the codebase — there's no scheduled job (APScheduler
+    is a listed dependency but app/tasks/ is empty) — so orders just sat at "paid"/"shipped"
+    forever once the window passed, with the buyer given no action to take. Evaluated lazily
+    whenever an order is read, since that's simpler and just as correct as polling for a demo
+    at this scale — no need for a real background worker yet.
+    """
+    if order.get("status") not in ("paid", "shipped") or order.get("escrow") != "held":
+        return order
+    release_at = order.get("release_at")
+    if not release_at:
+        return order
+    release_dt = datetime.fromisoformat(release_at.replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) < release_dt:
+        return order
+
+    # The .eq("status", ...) guard makes this safe under concurrent reads — if another
+    # request already released it, this update matches zero rows instead of double-crediting
+    # the wallet ledger.
+    res = sb.table("orders").update({
+        "status": "completed",
+        "escrow": "released",
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", order["id"]).eq("status", order["status"]).execute()
+    if not res.data:
+        return order
+    updated = res.data[0]
+    sb.table("wallet_ledger").insert({
+        "user_id": updated["seller_id"],
+        "type": "release",
+        "amount": updated["net_to_seller"],
+        "reference": f"order:{updated['id']}",
+    }).execute()
+    if "listing" in order:
+        updated["listing"] = order["listing"]
+    return updated
+
+
 def _attach_listing(order: dict) -> dict:
     sb = get_supabase()
     if order.get("listing_id"):
@@ -132,7 +174,8 @@ def list_orders():
         .order("paid_at", desc=True)
         .execute()
     )
-    return jsonify(data=[_serialize_order(o) for o in (res.data or [])])
+    orders = [_maybe_auto_release(o, sb) for o in (res.data or [])]
+    return jsonify(data=[_serialize_order(o) for o in orders])
 
 
 @bp.get("/<uuid:order_id>")
@@ -151,7 +194,8 @@ def get_order(order_id):
         return err("not_found", "Order not found", 404)
     if uid not in (res.data["buyer_id"], res.data["seller_id"]):
         return err("forbidden", "Not a party to this order", 403)
-    return jsonify(data=_serialize_order(res.data))
+    order = _maybe_auto_release(res.data, sb)
+    return jsonify(data=_serialize_order(order))
 
 
 @bp.post("/<uuid:order_id>/ship")

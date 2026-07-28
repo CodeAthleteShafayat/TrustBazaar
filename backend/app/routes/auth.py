@@ -1,7 +1,7 @@
 """Auth routes — signup, login, OTP request/verify, logout, me."""
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-from ..extensions import get_supabase, get_supabase_auth_client
+from ..extensions import get_supabase, get_supabase_auth_client, limiter
 from ..services.otp_service import get_otp_service, verify as verify_otp
 from ..utils.errors import err
 
@@ -9,6 +9,7 @@ bp = Blueprint("auth", __name__)
 
 
 @bp.post("/signup")
+@limiter.limit("5 per hour")
 def signup():
     body = request.get_json(force=True) or {}
     email = body.get("email")
@@ -16,6 +17,8 @@ def signup():
     display_name = body.get("display_name")
     if not email or not password or not display_name:
         return err("validation_error", "email, password, display_name required", 400)
+    if len(password) < 8:
+        return err("validation_error", "Password must be at least 8 characters", 400)
 
     try:
         res = get_supabase_auth_client().auth.sign_up({
@@ -39,6 +42,7 @@ def signup():
 
 
 @bp.post("/login")
+@limiter.limit("10 per minute")
 def login():
     body = request.get_json(force=True) or {}
     try:
@@ -59,6 +63,7 @@ def login():
 
 
 @bp.post("/otp/request")
+@limiter.limit("5 per minute")
 def otp_request():
     body = request.get_json(force=True) or {}
     channel = body.get("channel", "email")
@@ -66,22 +71,32 @@ def otp_request():
     if not target:
         return err("validation_error", "target required", 400)
     code = get_otp_service().request(channel=channel, target=target)
-    return jsonify(ok=True, dev_code=code)
+    # dev_code only appears outside production — MockOtpService doesn't actually send
+    # anything, so exposing the code in the response was equivalent to no auth at all.
+    if current_app.config["DEBUG"]:
+        return jsonify(ok=True, dev_code=code)
+    return jsonify(ok=True)
 
 
 @bp.post("/otp/verify")
+@limiter.limit("10 per minute")
 def otp_verify():
     body = request.get_json(force=True) or {}
     target = body.get("target")
     code = body.get("code")
     if not target or not code:
         return err("validation_error", "target and code required", 400)
-    if not verify_otp(code):
-        return err("otp_invalid", "Code is invalid", 401)
+    if not verify_otp(target, code):
+        return err("otp_invalid", "Code is invalid or expired", 401)
 
     sb = get_supabase()
-    # In MVP we mint a token directly for the demo user matching email/phone.
-    user = sb.table("users").select("id, email").or_(f"email.eq.{target},phone.eq.{target}").maybe_single().execute()
+    # Two separate exact-match lookups instead of a single interpolated .or_() filter —
+    # target is attacker-controlled input; building a PostgREST filter string with an
+    # f-string let commas/dots in it inject extra filter clauses. .eq() parameterizes
+    # the value instead of splicing it into the filter DSL.
+    user = sb.table("users").select("id, email").eq("email", target).maybe_single().execute()
+    if not user.data:
+        user = sb.table("users").select("id, email").eq("phone", target).maybe_single().execute()
     if not user.data:
         return err("not_found", "Account not found for that target", 404)
     token = create_access_token(identity=user.data["id"])
