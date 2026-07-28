@@ -44,8 +44,8 @@ def _maybe_auto_release(order: dict, sb) -> dict:
     at this scale — no need for a real background worker yet.
 
     Delegates to release_expired_order_atomic() (012_auto_release_order.sql), which uses the
-    same wallet_ledger reference key as complete_order_atomic ('order:<id>:release') so a
-    race against an explicit buyer confirm can never double-credit the seller.
+    same ledger reference key as complete_order_atomic ('order:<id>:release') so a race
+    against an explicit buyer confirm can never double-credit the seller.
     """
     if order.get("status") not in ("paid", "shipped") or order.get("escrow") != "held":
         return order
