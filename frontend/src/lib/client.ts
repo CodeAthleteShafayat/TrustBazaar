@@ -15,7 +15,7 @@ export type Listing = {
   deposit_rate?: string | null;
   commission_rate?: string;
   photo_urls: string[];
-  status: "active" | "sold" | "rented" | "draft" | "removed";
+  status: "active" | "sold" | "rented" | "archived";
   location?: string | null;
   created_at: string;
   updated_at?: string;
@@ -77,11 +77,44 @@ export type Dispute = {
   rental_id?: string | null;
   raised_by: string;
   reason: string;
-  description?: string | null;
-  status: "open" | "under_review" | "resolved_buyer" | "resolved_seller" | "resolved_split";
-  resolution?: string | null;
-  refund_amount?: string | null;
+  status: "open" | "under_review" | "resolved";
+  resolution?: "refund" | "release" | "split" | null;
+  split_buyer?: string | null;
+  split_seller?: string | null;
+  admin_notes?: string | null;
   created_at: string;
+  resolved_at?: string | null;
+};
+
+export type CommissionConfig = {
+  category: string;
+  sale_rate: string | number;
+  deposit_rate: string | number;
+  updated_at?: string;
+};
+
+export type AdminUser = {
+  id: string;
+  email: string;
+  display_name: string;
+  phone?: string | null;
+  trust_score: number | null;
+  trust_tier?: string;
+  is_admin: boolean;
+  joined_at: string;
+};
+
+export type AdminListing = {
+  id: string;
+  seller_id: string;
+  title: string;
+  category: string;
+  listing_type: "sale" | "rent";
+  price: string;
+  rent_per_day?: string | null;
+  status: string;
+  created_at: string;
+  seller?: { display_name: string; email: string } | null;
 };
 
 export type WalletEntry = {
@@ -171,9 +204,14 @@ export const apiClient = {
 
   // Admin
   adminListDisputes: () => api<{ data: Dispute[] }>("/admin/disputes", { token: tok() }),
-  adminResolveDispute: (id: string, body: { resolution: string; refund_amount?: string }) =>
+  adminResolveDispute: (id: string, body: { decision: "refund" | "release" | "split"; admin_notes?: string; split_buyer?: string; split_seller?: string }) =>
     api<{ data: Dispute }>(`/admin/disputes/${id}/resolve`, { method: "POST", body: JSON.stringify(body), token: tok() }),
-  commissionConfig: () => api<{ data: { category: string; commission_rate: string; deposit_rate: string; high_value_flagged: boolean }[] }>("/admin/commission"),
+  commissionConfig: () => api<{ data: CommissionConfig[] }>("/admin/commission", { token: tok() }),
+  upsertCommission: (body: { category: string; sale_rate: number; deposit_rate: number }) =>
+    api<{ data: CommissionConfig }>("/admin/commission", { method: "POST", body: JSON.stringify(body), token: tok() }),
+  adminListUsers: () => api<{ data: AdminUser[] }>("/admin/users", { token: tok() }),
+  adminListListings: () => api<{ data: AdminListing[] }>("/admin/listings", { token: tok() }),
+  adminRemoveListing: (id: string) => api<{ ok: true }>(`/admin/listings/${id}`, { method: "DELETE", token: tok() }),
 
   // Upload
   uploadPhoto: async (file: File, kind: "listing" | "dispute" = "listing") => {

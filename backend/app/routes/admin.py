@@ -123,3 +123,43 @@ def upsert_commission():
         "deposit_rate": body.get("deposit_rate", 0.40),
     }).execute()
     return jsonify(data=res.data[0])
+
+
+@bp.get("/users")
+@jwt_required()
+@admin_required
+def list_users():
+    sb = get_supabase()
+    res = sb.table("users").select(
+        "id, email, display_name, phone, trust_score, trust_tier, is_admin, joined_at"
+    ).order("joined_at", desc=True).execute()
+    return jsonify(data=res.data or [])
+
+
+@bp.get("/listings")
+@jwt_required()
+@admin_required
+def list_all_listings():
+    """Every listing regardless of status — the public /listings endpoint only returns 'active'."""
+    sb = get_supabase()
+    res = sb.table("listings").select(
+        "id, seller_id, title, category, listing_type, price, rent_per_day, status, created_at, "
+        "users:seller_id(display_name, email)"
+    ).order("created_at", desc=True).execute()
+    out = []
+    for row in (res.data or []):
+        row["seller"] = row.pop("users", None)
+        out.append(row)
+    return jsonify(data=out)
+
+
+@bp.delete("/listings/<uuid:listing_id>")
+@jwt_required()
+@admin_required
+def admin_remove_listing(listing_id):
+    """Admin override — remove any listing regardless of ownership (moderation)."""
+    sb = get_supabase()
+    res = sb.table("listings").update({"status": "archived"}).eq("id", str(listing_id)).execute()
+    if not res.data:
+        return err("not_found", "Listing not found", 404)
+    return jsonify(ok=True)

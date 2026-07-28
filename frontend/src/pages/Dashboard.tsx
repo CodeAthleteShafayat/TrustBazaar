@@ -12,7 +12,7 @@ import { fmtMoney } from "../lib/utils";
 import { useAuth } from "../lib/auth";
 
 const LISTING_STATUS_VARIANT: Record<string, "default" | "info" | "success" | "warning" | "danger" | "violet"> = {
-  active: "success", sold: "info", rented: "violet", draft: "warning", removed: "default",
+  active: "success", sold: "info", rented: "violet", archived: "default",
 };
 
 export function Dashboard() {

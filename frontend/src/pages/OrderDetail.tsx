@@ -191,7 +191,7 @@ export function OrderDetail() {
                   <CheckCircle2 className="h-4 w-4" /> Confirm receipt & release
                 </Button>
               )}
-              {(isBuyer || isSeller) && (order.status === "paid" || order.status === "shipped") && (
+              {(isBuyer || isSeller) && order.status === "shipped" && (
                 <Button variant="outline" onClick={() => setDisputeOpen(true)} className="w-full">
                   <AlertCircle className="h-4 w-4" /> Open dispute
                 </Button>

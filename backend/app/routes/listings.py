@@ -187,7 +187,7 @@ def update_listing(listing_id):
 def delete_listing(listing_id):
     uid = get_jwt_identity()
     sb = get_supabase()
-    res = sb.table("listings").update({"status": "removed"}).eq("id", str(listing_id)).eq("seller_id", uid).execute()
+    res = sb.table("listings").update({"status": "archived"}).eq("id", str(listing_id)).eq("seller_id", uid).execute()
     if not res.data:
         return err("forbidden", "Not the owner or listing missing", 403)
     return jsonify(ok=True)
