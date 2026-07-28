@@ -108,13 +108,24 @@ export type AdminListing = {
   id: string;
   seller_id: string;
   title: string;
+  description?: string | null;
   category: string;
   listing_type: "sale" | "rent";
   price: string;
   rent_per_day?: string | null;
-  status: string;
+  deposit_required?: string | null;
+  deposit_rate?: string | null;
+  status: "active" | "sold" | "rented" | "archived";
+  location?: string | null;
   created_at: string;
   seller?: { display_name: string; email: string } | null;
+};
+
+export type AdminStats = {
+  users: number;
+  active_listings: number;
+  open_disputes: number;
+  gmv: string;
 };
 
 export type WalletEntry = {
@@ -210,8 +221,13 @@ export const apiClient = {
   upsertCommission: (body: { category: string; sale_rate: number; deposit_rate: number }) =>
     api<{ data: CommissionConfig }>("/admin/commission", { method: "POST", body: JSON.stringify(body), token: tok() }),
   adminListUsers: () => api<{ data: AdminUser[] }>("/admin/users", { token: tok() }),
+  adminUpdateUser: (id: string, body: Partial<Pick<AdminUser, "display_name" | "phone" | "is_admin">>) =>
+    api<{ data: AdminUser }>(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body), token: tok() }),
   adminListListings: () => api<{ data: AdminListing[] }>("/admin/listings", { token: tok() }),
+  adminUpdateListing: (id: string, body: Partial<AdminListing>) =>
+    api<{ data: AdminListing }>(`/admin/listings/${id}`, { method: "PATCH", body: JSON.stringify(body), token: tok() }),
   adminRemoveListing: (id: string) => api<{ ok: true }>(`/admin/listings/${id}`, { method: "DELETE", token: tok() }),
+  adminStats: () => api<{ data: AdminStats }>("/admin/stats", { token: tok() }),
 
   // Upload
   uploadPhoto: async (file: File, kind: "listing" | "dispute" = "listing") => {

@@ -136,6 +136,28 @@ def list_users():
     return jsonify(data=res.data or [])
 
 
+@bp.patch("/users/<uuid:user_id>")
+@jwt_required()
+@admin_required
+def admin_update_user(user_id):
+    """Admin edit — display_name/phone/is_admin only. trust_score is intentionally not
+    editable here: trust_score.py recomputes and overwrites it on every profile view, so a
+    manual edit would silently vanish the next time anyone looks at the profile."""
+    uid = get_jwt_identity()
+    body = request.get_json(force=True) or {}
+    allowed = {"display_name", "phone", "is_admin"}
+    safe = {k: v for k, v in body.items() if k in allowed}
+    if not safe:
+        return err("validation_error", "No editable fields provided", 400)
+    if str(user_id) == uid and safe.get("is_admin") is False:
+        return err("validation_error", "Cannot remove your own admin access", 400)
+    sb = get_supabase()
+    res = sb.table("users").update(safe).eq("id", str(user_id)).execute()
+    if not res.data:
+        return err("not_found", "User not found", 404)
+    return jsonify(data=res.data[0])
+
+
 @bp.get("/listings")
 @jwt_required()
 @admin_required
@@ -143,7 +165,8 @@ def list_all_listings():
     """Every listing regardless of status — the public /listings endpoint only returns 'active'."""
     sb = get_supabase()
     res = sb.table("listings").select(
-        "id, seller_id, title, category, listing_type, price, rent_per_day, status, created_at, "
+        "id, seller_id, title, description, category, listing_type, price, rent_per_day, "
+        "deposit_required, deposit_rate, status, location, created_at, "
         "users:seller_id(display_name, email)"
     ).order("created_at", desc=True).execute()
     out = []
@@ -151,6 +174,26 @@ def list_all_listings():
         row["seller"] = row.pop("users", None)
         out.append(row)
     return jsonify(data=out)
+
+
+@bp.patch("/listings/<uuid:listing_id>")
+@jwt_required()
+@admin_required
+def admin_update_listing(listing_id):
+    """Admin override — edit any listing regardless of ownership (moderation/correction)."""
+    body = request.get_json(force=True) or {}
+    allowed = {
+        "title", "description", "category", "price", "listing_type",
+        "rent_per_day", "deposit_required", "deposit_rate", "status", "location",
+    }
+    safe = {k: v for k, v in body.items() if k in allowed}
+    if not safe:
+        return err("validation_error", "No editable fields provided", 400)
+    sb = get_supabase()
+    res = sb.table("listings").update(safe).eq("id", str(listing_id)).execute()
+    if not res.data:
+        return err("not_found", "Listing not found", 404)
+    return jsonify(data=res.data[0])
 
 
 @bp.delete("/listings/<uuid:listing_id>")
@@ -163,3 +206,24 @@ def admin_remove_listing(listing_id):
     if not res.data:
         return err("not_found", "Listing not found", 404)
     return jsonify(ok=True)
+
+
+@bp.get("/stats")
+@jwt_required()
+@admin_required
+def admin_stats():
+    sb = get_supabase()
+    users_count = len(sb.table("users").select("id").execute().data or [])
+    active_listings = len(sb.table("listings").select("id").eq("status", "active").execute().data or [])
+    open_disputes = len(sb.table("disputes").select("id").in_("status", ["open", "under_review"]).execute().data or [])
+
+    completed_orders = sb.table("orders").select("amount").eq("status", "completed").execute().data or []
+    completed_rentals = sb.table("rentals").select("rental_fee").eq("status", "completed").execute().data or []
+    gmv = sum(Decimal(str(o["amount"])) for o in completed_orders) + sum(Decimal(str(r["rental_fee"])) for r in completed_rentals)
+
+    return jsonify(data={
+        "users": users_count,
+        "active_listings": active_listings,
+        "open_disputes": open_disputes,
+        "gmv": str(gmv),
+    })
