@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from ..extensions import get_supabase
+from ..extensions import get_supabase, call_rpc
 from ..utils.errors import err
 from ..services.payment_provider import get_payment_provider
 from ..services.escrow_state_machine import is_valid_order_transition, commission_for_category
@@ -56,10 +56,10 @@ def _maybe_auto_release(order: dict, sb) -> dict:
     if datetime.now(timezone.utc) < release_dt:
         return order
 
-    rpc_res = sb.rpc("release_expired_order_atomic", {"p_order_id": order["id"]}).execute()
-    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
+    result = call_rpc(sb, "release_expired_order_atomic", {"p_order_id": order["id"]})
+    if not result or (isinstance(result, dict) and result.get("error")):
         return order
-    updated = rpc_res.data
+    updated = result
     if "listing" in order:
         updated["listing"] = order["listing"]
     return updated
@@ -139,25 +139,25 @@ def create_order():
     # status='active' and seller_id != uid, inserts the order, marks the
     # listing sold. Returns the order on success, or {error, message} on
     # the race the listing was just taken.
-    rpc_res = sb.rpc("create_order_atomic", {
+    result = call_rpc(sb, "create_order_atomic", {
         "p_listing_id": listing_id,
         "p_buyer_id": uid,
         "p_amount": str(amount),
         "p_commission": str(commission),
         "p_release_at": release_at.isoformat(),
         "p_demo_fast_forward_seconds": current_app.config["DEMO_FAST_FORWARD_SECONDS"],
-    }).execute()
+    })
 
-    if not rpc_res.data or isinstance(rpc_res.data, dict) and rpc_res.data.get("error"):
+    if not result or (isinstance(result, dict) and result.get("error")):
         # RPC rejected: refund the charge so we never leave a successful
         # payment dangling against a failed DB write.
         get_payment_provider().refund(charge_id=charge.charge_id, amount=amount)
-        err_code = (rpc_res.data or {}).get("error") or "conflict"
-        err_msg = (rpc_res.data or {}).get("message") or "Could not create order"
+        err_code = (result or {}).get("error") or "conflict"
+        err_msg = (result or {}).get("message") or "Could not create order"
         status = 409 if err_code == "conflict" else 400
         return err(err_code, err_msg, status)
 
-    order = rpc_res.data
+    order = result
     return jsonify(data=_serialize_order(order)), 201
 
 
@@ -224,20 +224,20 @@ def confirm_order(order_id):
     # All state-machine + ledger work happens inside one Postgres transaction.
     # The RPC is idempotent: a second call returns the already-completed
     # order without producing a duplicate release ledger entry.
-    rpc_res = sb.rpc("complete_order_atomic", {
+    result = call_rpc(sb, "complete_order_atomic", {
         "p_order_id": str(order_id),
         "p_actor_id": uid,
-    }).execute()
-    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
-        err_code = (rpc_res.data or {}).get("error") or "conflict"
-        err_msg = (rpc_res.data or {}).get("message") or "Could not confirm order"
+    })
+    if not result or (isinstance(result, dict) and result.get("error")):
+        err_code = (result or {}).get("error") or "conflict"
+        err_msg = (result or {}).get("message") or "Could not confirm order"
         status_map = {
             "forbidden": 403,
             "escrow_invalid_transition": 409,
             "not_found": 404,
         }
         return err(err_code, err_msg, status_map.get(err_code, 400))
-    return jsonify(data=_serialize_order(rpc_res.data))
+    return jsonify(data=_serialize_order(result))
 
 
 @bp.post("/<uuid:order_id>/dispute")

@@ -1,4 +1,5 @@
 from supabase import create_client, Client
+from postgrest.exceptions import APIError
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -52,3 +53,24 @@ def get_supabase_auth_client() -> Client:
     if not _supabase_url or not _supabase_anon_key:
         raise RuntimeError("Supabase auth client not initialized — set SUPABASE_URL + SUPABASE_ANON_KEY")
     return create_client(_supabase_url, _supabase_anon_key)
+
+
+def call_rpc(sb: Client, fn_name: str, params: dict) -> dict:
+    """Call one of the atomic-ops RPCs (011_atomic_ops.sql / 012_auto_release_order.sql),
+    which signal business-logic failure by returning jsonb_build_object('error', ...,
+    'message', ...) rather than raising a Postgres exception.
+
+    postgrest-py's response model treats any top-level 'error' key in the RPC's JSON
+    result as a transport-level API error and raises APIError instead of handing it back
+    as .data — even though this is our own application data, not a real PostgREST error.
+    Without this, every conflict/validation path in create_order_atomic,
+    complete_order_atomic, create_rental_atomic, complete_rental_atomic,
+    resolve_dispute_atomic, payout_atomic, and release_expired_order_atomic crashes with
+    an uncaught 500 instead of the intended 4xx response. This normalizes both paths back
+    into a plain dict so callers can check `result.get("error")` the same way regardless
+    of which path postgrest took.
+    """
+    try:
+        return sb.rpc(fn_name, params).execute().data
+    except APIError as e:
+        return e.json()

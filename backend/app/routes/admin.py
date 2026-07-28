@@ -1,8 +1,9 @@
 """Admin routes — gated to users with users.is_admin = true."""
+from decimal import Decimal
 from functools import wraps
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from ..extensions import get_supabase
+from ..extensions import get_supabase, call_rpc
 from ..utils.errors import err
 
 bp = Blueprint("admin", __name__)
@@ -47,19 +48,19 @@ def resolve_dispute(dispute_id):
         "admin_notes": admin_notes,
     }).eq("id", str(dispute_id)).eq("status", "open").execute()
 
-    rpc_res = sb.rpc("resolve_dispute_atomic", {
+    result = call_rpc(sb, "resolve_dispute_atomic", {
         "p_dispute_id":   str(dispute_id),
         "p_decision":     decision,
         "p_split_buyer":  body.get("split_buyer"),
         "p_split_seller": body.get("split_seller"),
-    }).execute()
-    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
-        err_code = (rpc_res.data or {}).get("error") or "conflict"
-        err_msg = (rpc_res.data or {}).get("message") or "Could not resolve dispute"
+    })
+    if not result or (isinstance(result, dict) and result.get("error")):
+        err_code = (result or {}).get("error") or "conflict"
+        err_msg = (result or {}).get("message") or "Could not resolve dispute"
         status_map = {"not_found": 404, "validation_error": 400}
         return err(err_code, err_msg, status_map.get(err_code, 409))
 
-    return jsonify(data=rpc_res.data)
+    return jsonify(data=result)
 
 
 @bp.get("/commission")

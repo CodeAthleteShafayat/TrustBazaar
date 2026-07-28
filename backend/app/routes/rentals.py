@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from ..extensions import get_supabase
+from ..extensions import get_supabase, call_rpc
 from ..utils.errors import err
 from ..services.payment_provider import get_payment_provider
 from ..services.escrow_state_machine import is_valid_rental_transition, deposit_rate_for_category
@@ -112,7 +112,7 @@ def create_rental():
     # listing_type='rent', checks no existing non-terminal rental overlaps
     # the requested daterange, inserts the rental. Returns the rental row
     # or {error, message}.
-    rpc_res = sb.rpc("create_rental_atomic", {
+    result = call_rpc(sb, "create_rental_atomic", {
         "p_listing_id": listing_id,
         "p_renter_id": uid,
         "p_start_date": sd.isoformat(),
@@ -122,19 +122,19 @@ def create_rental():
         "p_deposit_amount": str(deposit_amount),
         "p_commission": str(commission),
         "p_deposit_release_at": deposit_release_at.isoformat(),
-    }).execute()
+    })
 
-    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
+    if not result or (isinstance(result, dict) and result.get("error")):
         # Race: another renter took the dates, or listing was withdrawn, etc.
         # Refund the charge so we never leave payment collected against a
         # failed DB write.
         get_payment_provider().refund(charge_id=charge.charge_id, amount=rental_fee + deposit_amount)
-        err_code = (rpc_res.data or {}).get("error") or "conflict"
-        err_msg = (rpc_res.data or {}).get("message") or "Could not create rental"
+        err_code = (result or {}).get("error") or "conflict"
+        err_msg = (result or {}).get("message") or "Could not create rental"
         status = 409 if err_code == "conflict" else 400
         return err(err_code, err_msg, status)
 
-    return jsonify(data=_serialize_rental(rpc_res.data)), 201
+    return jsonify(data=_serialize_rental(result)), 201
 
 
 @bp.get("")
@@ -208,20 +208,20 @@ def confirm_return(rental_id):
     # All state-machine + ledger work happens inside one Postgres transaction.
     # The RPC is idempotent: a second call returns the already-completed
     # rental without producing duplicate refund/release ledger entries.
-    rpc_res = sb.rpc("complete_rental_atomic", {
+    result = call_rpc(sb, "complete_rental_atomic", {
         "p_rental_id": str(rental_id),
         "p_actor_id": uid,
-    }).execute()
-    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
-        err_code = (rpc_res.data or {}).get("error") or "conflict"
-        err_msg = (rpc_res.data or {}).get("message") or "Could not complete rental"
+    })
+    if not result or (isinstance(result, dict) and result.get("error")):
+        err_code = (result or {}).get("error") or "conflict"
+        err_msg = (result or {}).get("message") or "Could not complete rental"
         status_map = {
             "forbidden": 403,
             "escrow_invalid_transition": 409,
             "not_found": 404,
         }
         return err(err_code, err_msg, status_map.get(err_code, 400))
-    return jsonify(data=_serialize_rental(rpc_res.data))
+    return jsonify(data=_serialize_rental(result))
 
 
 @bp.post("/<uuid:rental_id>/claim")

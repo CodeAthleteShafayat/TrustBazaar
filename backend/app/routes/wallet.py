@@ -2,7 +2,7 @@
 from decimal import Decimal
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from ..extensions import get_supabase
+from ..extensions import get_supabase, call_rpc
 from ..utils.errors import err
 
 bp = Blueprint("wallet", __name__)
@@ -61,16 +61,16 @@ def request_payout():
     # the ledger, computes available, inserts a debit row — all atomic.
     # Two concurrent payouts from the same user serialise on the lock, so
     # the second sees the first's debit and recomputes a (lower) balance.
-    rpc_res = sb.rpc("payout_atomic", {
+    result = call_rpc(sb, "payout_atomic", {
         "p_user_id": uid,
         "p_amount": str(amount),
-    }).execute()
+    })
 
-    if not rpc_res.data or (isinstance(rpc_res.data, dict) and rpc_res.data.get("error")):
-        err_code = (rpc_res.data or {}).get("error") or "payout_failed"
-        err_msg = (rpc_res.data or {}).get("message") or "Payout failed"
+    if not result or (isinstance(result, dict) and result.get("error")):
+        err_code = (result or {}).get("error") or "payout_failed"
+        err_msg = (result or {}).get("message") or "Payout failed"
         status = 422 if err_code == "insufficient_funds" else 400
         return err(err_code, err_msg, status)
 
     # Mocked in MVP — in Phase 2 this hits SSLCommerz payout or Stripe Connect.
-    return jsonify(data={"payout_id": rpc_res.data["payout_id"], "status": "mocked"})
+    return jsonify(data={"payout_id": result["payout_id"], "status": "mocked"})
